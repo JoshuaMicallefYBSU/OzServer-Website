@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -46,5 +47,17 @@ class Sector extends Model
     public function getRouteKeyName(): string
     {
         return 'name';
+    }
+
+    /**
+     * This sector plus every sector it's "responsible for" - e.g. ASP
+     * covers FOR/WAR/ASW/WRA/BKE/ESP too. Ownership always applies to the
+     * whole group together, never just the parent alone.
+     */
+    public function coveredSectors(): Collection
+    {
+        $names = [$this->name, ...($this->responsible_sectors ?? [])];
+
+        return self::whereIn('name', $names)->get();
     }
 }

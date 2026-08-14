@@ -1,12 +1,10 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Jobs\SyncVatsysDatasetJob;
 use App\Jobs\AFVTransieversUpdate;
 
-Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
+Schedule::job(new SyncVatsysDatasetJob)->everyMinute();
 
 // Laravel's scheduler can't go below 1-minute granularity, so this loops
 // 4 times with a 15s sleep between each call to approximate every 15s.
