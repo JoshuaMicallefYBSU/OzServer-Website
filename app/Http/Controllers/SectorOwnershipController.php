@@ -203,4 +203,33 @@ class SectorOwnershipController extends Controller
             'from_me' => SectorOwnershipRequest::with('sector')->where('target_cid', $vatsim['cid'])->get(),
         ]);
     }
+
+    /**
+     * Sectors currently owned by someone other than the caller - the
+     * plugin's "Controlled" list. Not restricted to the map's TWR/APP/DEP/
+     * ENR subset - ownership (and Flow/GND/DEL positions with it) isn't
+     * type-restricted, so this reflects every claimed sector regardless of
+     * type, letting the plugin group them (Flow/Centre/Approach/Tower) how
+     * it needs to.
+     */
+    public function controlled(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        $sectors = Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', '!=', $vatsim['cid']))
+            ->with('ownership')
+            ->get();
+
+        return response()->json($sectors->map(fn (Sector $sector) => [
+            'name' => $sector->name,
+            'full_name' => $sector->full_name,
+            'type' => $sector->type,
+            'callsign' => $sector->callsign,
+            'frequency' => $sector->frequency,
+            'owner' => [
+                'cid' => $sector->ownership->controller_cid,
+                'callsign' => $sector->ownership->controller_callsign,
+            ],
+        ]));
+    }
 }

@@ -13,6 +13,8 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/afv/transceivers', [AfvTransceiverController::class, 'index']);
 
+    Route::get('/sectors/controlled', [SectorOwnershipController::class, 'controlled'])->middleware('vatsim.verified');
+
     Route::prefix('sectors/{sector:name}')->group(function () {
         Route::post('/claim', [SectorOwnershipController::class, 'claim'])->middleware('vatsim.verified');
         Route::post('/release', [SectorOwnershipController::class, 'release'])->middleware('vatsim.verified');
