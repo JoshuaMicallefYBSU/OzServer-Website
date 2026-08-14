@@ -7,8 +7,6 @@ use App\Jobs\ReleaseStaleSectorOwnershipsJob;
 
 Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
 
-Schedule::job(new ReleaseStaleSectorOwnershipsJob)->everyMinute()->withoutOverlapping();
-
 // Laravel's scheduler can't go below 1-minute granularity, so this loops
 // 4 times with a 15s sleep between each call to approximate every 15s.
 Schedule::call(function () {
@@ -20,3 +18,13 @@ Schedule::call(function () {
         }
     }
 })->everyMinute()->name('afv-transceivers-poll')->withoutOverlapping();
+
+Schedule::call(function () {
+    for ($i = 0; $i < 4; $i++) {
+        (new ReleaseStaleSectorOwnershipsJob)->handle();
+
+        if ($i < 3) {
+            sleep(15);
+        }
+    }
+})->everyMinute()->name('release-controller-sectors')->withoutOverlapping();
