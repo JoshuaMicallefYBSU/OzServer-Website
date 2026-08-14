@@ -13,6 +13,8 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/afv/transceivers', [AfvTransceiverController::class, 'index']);
 
+    Route::get('/sectors/mine', [SectorOwnershipController::class, 'mine'])->middleware('plugin.token');
+
     Route::get('/sectors/controlled', [SectorOwnershipController::class, 'controlled'])->middleware('plugin.token');
 
     Route::prefix('sectors/{sector:name}')->group(function () {

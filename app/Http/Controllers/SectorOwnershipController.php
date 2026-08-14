@@ -212,6 +212,27 @@ class SectorOwnershipController extends Controller
     }
 
     /**
+     * Sectors currently owned by the requesting controller - the
+     * authoritative "what do I actually own" check, used to refresh the
+     * plugin's Owned list every time its Sectors window opens rather than
+     * trust locally-accumulated state that can drift out of sync (a claim
+     * from a previous vatSys session, an ownership released some other way,
+     * a local claim call that failed silently, ...).
+     */
+    public function mine(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        $sectors = Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', $vatsim['cid']))->get();
+
+        return response()->json($sectors->map(fn (Sector $sector) => [
+            'id' => $sector->id,
+            'name' => $sector->name,
+            'full_name' => $sector->full_name,
+        ]));
+    }
+
+    /**
      * Sectors currently owned by someone other than the caller - the
      * plugin's "Controlled" list. Not restricted to the map's TWR/APP/DEP/
      * ENR subset - ownership (and Flow/GND/DEL positions with it) isn't
