@@ -160,21 +160,75 @@ class SectorOwnershipController extends Controller
     {
         $vatsim = $request->attributes->get('vatsim');
 
+        if (! $this->acceptOne($vatsim['cid'], $sectorOwnershipRequest)) {
+            return response()->json(['message' => "Only the sector's current owner may accept this request."], 403);
+        }
+
+        return response()->json(['message' => 'Ownership transferred.']);
+    }
+
+    /**
+     * Accept several incoming requests in one call, processed sequentially
+     * in the given order - the plugin's "accept all selected" action.
+     * Firing separate accept() calls back-to-back for a batch left a window
+     * where each one's own claim/refresh cascade (MMI.SectorsControlledChanged
+     * -> re-claim -> refresh Owned, all client-side and asynchronous) could
+     * still be in flight when the next one landed, occasionally leaving a
+     * request row undeleted even though its sector's authority had already
+     * moved on. Going through one request removes that race by
+     * construction: only one accept is ever actually running server-side at
+     * a time, so each one's own SectorOwnershipRequest::delete() completes
+     * before the next starts.
+     */
+    public function acceptBatch(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+        $ids = array_values(array_filter((array) $request->input('request_ids', []), 'is_numeric'));
+
+        $results = collect($ids)->map(function ($id) use ($vatsim) {
+            $sectorOwnershipRequest = SectorOwnershipRequest::find($id);
+
+            if ($sectorOwnershipRequest === null) {
+                return ['request_id' => (int) $id, 'accepted' => false, 'message' => 'Request no longer exists.'];
+            }
+
+            $sectorName = $sectorOwnershipRequest->sector->name;
+            $accepted = $this->acceptOne($vatsim['cid'], $sectorOwnershipRequest);
+
+            return [
+                'request_id' => (int) $id,
+                'sector' => $sectorName,
+                'accepted' => $accepted,
+                'message' => $accepted ? 'Ownership transferred.' : "Only the sector's current owner may accept this request.",
+            ];
+        });
+
+        return response()->json(['results' => $results]);
+    }
+
+    /**
+     * Shared accept logic for accept()/acceptBatch() - transfers
+     * sectorOwnershipRequest's sector (and everything it covers) to the
+     * requester if $cid is still the sector's current owner and this
+     * request's target. Returns whether the transfer happened.
+     */
+    private function acceptOne(int $cid, SectorOwnershipRequest $sectorOwnershipRequest): bool
+    {
         $sector = $sectorOwnershipRequest->sector;
         $currentOwnership = $sector->ownership;
 
-        $isCurrentTarget = $sectorOwnershipRequest->target_cid === $vatsim['cid']
+        $isCurrentTarget = $sectorOwnershipRequest->target_cid === $cid
             && $currentOwnership !== null
-            && $currentOwnership->controller_cid === $vatsim['cid'];
+            && $currentOwnership->controller_cid === $cid;
 
         if (! $isCurrentTarget) {
-            return response()->json(['message' => "Only the sector's current owner may accept this request."], 403);
+            return false;
         }
 
         $covered = $sector->coveredSectors();
 
         SectorOwnership::whereIn('sector_id', $covered->pluck('id'))
-            ->where('controller_cid', $vatsim['cid'])
+            ->where('controller_cid', $cid)
             ->update([
                 'controller_cid' => $sectorOwnershipRequest->requesting_cid,
                 'controller_callsign' => $sectorOwnershipRequest->requesting_callsign,
@@ -183,7 +237,7 @@ class SectorOwnershipController extends Controller
         // Any other pending requests for this sector are moot now.
         SectorOwnershipRequest::where('sector_id', $sector->id)->delete();
 
-        return response()->json(['message' => 'Ownership transferred.']);
+        return true;
     }
 
     /**

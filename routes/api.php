@@ -25,6 +25,7 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::get('/sector-requests', [SectorOwnershipController::class, 'myRequests'])->middleware('plugin.token');
+    Route::post('/sector-requests/accept-batch', [SectorOwnershipController::class, 'acceptBatch'])->middleware('plugin.token');
 
     Route::prefix('sector-requests/{sectorOwnershipRequest}')->group(function () {
         Route::post('/accept', [SectorOwnershipController::class, 'accept'])->middleware('plugin.token');
