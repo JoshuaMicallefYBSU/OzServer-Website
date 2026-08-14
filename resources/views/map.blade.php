@@ -140,12 +140,11 @@
                         type: 'fill',
                         source: 'sectors',
                         paint: {
-                            'fill-color': [
-                                'case',
-                                ['!=', ['get', 'owner_cid'], null], '#f97316',
-                                ['==', ['get', 'online'], true], '#22d3ee',
-                                '#334155',
-                            ],
+                            // Only claimed sectors are ever sent here now,
+                            // so this is just the one dark-blue fill for
+                            // all of them (no separate owned/unclaimed
+                            // distinction to draw anymore).
+                            'fill-color': '#334155',
                             'fill-opacity': 0.35,
                         },
                     });

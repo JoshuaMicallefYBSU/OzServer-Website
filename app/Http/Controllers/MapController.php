@@ -18,16 +18,18 @@ class MapController extends Controller
     private const VISIBLE_SECTOR_TYPES = ['TWR', 'APP', 'DEP', 'CTR', 'FSS'];
 
     /**
-     * Sector polygons, current ownership, and online status. A handful of
-     * sectors still won't have geometry - not every domestic sector has a
-     * matching Volume in Volumes.xml - so `boundary` is sometimes an empty
-     * list rather than an error.
+     * Sector polygons, current ownership, and online status - claimed
+     * sectors only, everything else is left off the map entirely. A
+     * handful of sectors still won't have geometry - not every domestic
+     * sector has a matching Volume in Volumes.xml - so `boundary` is
+     * sometimes an empty list rather than an error.
      */
     public function sectors()
     {
         $onlineCallsigns = $this->onlineControllerCallsigns();
 
         $sectors = Sector::whereIn('type', self::VISIBLE_SECTOR_TYPES)
+            ->whereHas('ownership')
             ->with(['volumes', 'ownership'])
             ->get();
 
