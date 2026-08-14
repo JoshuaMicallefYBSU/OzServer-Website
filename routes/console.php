@@ -3,8 +3,11 @@
 use Illuminate\Support\Facades\Schedule;
 use App\Jobs\SyncVatsysDatasetJob;
 use App\Jobs\AFVTransieversUpdate;
+use App\Jobs\ReleaseStaleSectorOwnershipsJob;
 
-Schedule::job(new SyncVatsysDatasetJob)->everyMinute();
+Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
+
+Schedule::job(new ReleaseStaleSectorOwnershipsJob)->everyMinute()->withoutOverlapping();
 
 // Laravel's scheduler can't go below 1-minute granularity, so this loops
 // 4 times with a 15s sleep between each call to approximate every 15s.
