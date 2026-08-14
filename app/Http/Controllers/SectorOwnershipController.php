@@ -28,6 +28,13 @@ class SectorOwnershipController extends Controller
                 continue;
             }
 
+            // Already mine - re-claiming (e.g. re-pressing VSCS transmit, or the plugin's own
+            // reconciliation re-asserting what it thinks it owns) is a harmless no-op, not a
+            // conflict with myself.
+            if ($existing->controller_cid === $vatsim['cid']) {
+                continue;
+            }
+
             $stillOnline = (new VATSIMClient)->searchCallsign($existing->controller_callsign, true);
 
             if ($stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid) {
