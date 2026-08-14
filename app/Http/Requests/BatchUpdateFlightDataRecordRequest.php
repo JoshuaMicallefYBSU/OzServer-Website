@@ -5,7 +5,13 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateFlightDataRecordRequest extends FormRequest
+/**
+ * One request, many flights - the plugin's own batched replacement for
+ * calling POST /fdr once per aircraft. Same per-flight fields as
+ * UpdateFlightDataRecordRequest (see FlightDataRecordRules), just nested
+ * under `flights`.
+ */
+class BatchUpdateFlightDataRecordRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -27,7 +33,8 @@ class UpdateFlightDataRecordRequest extends FormRequest
         return [
             'controller_cid' => ['required', 'integer'],
             'controller_callsign' => ['required', 'string'],
-            ...FlightDataRecordRules::fields(),
+            'flights' => ['required', 'array', 'min:1'],
+            ...FlightDataRecordRules::prefixed('flights.*'),
         ];
     }
 }

@@ -96,32 +96,58 @@ class MapController extends Controller
     }
 
     /**
-     * Online controllers matched to a known Sector.callsign (restricted to
-     * the same TWR/APP/DEP/ENR types shown on the map, so this list stays
-     * consistent with what's actually rendered), with the frequencies each
-     * is actually transmitting/receiving on per the AFV transceiver feed
-     * (App\Jobs\AFVTransieversUpdate) - a controller can be on more than
-     * one via AFV multiplexing, so this is a list, not a single frequency.
-     * Falls back to the datafeed's own single frequency if AFV data isn't
-     * cached yet.
+     * Sort priority for the online-controllers list: Flow first, then
+     * Centre/FSS, then Approach/Departure together, then Tower/Ground/
+     * Delivery together - not the same restricted set the map's sector
+     * polygons use (VISIBLE_SECTOR_TYPES), since staffing/ownership isn't
+     * type-limited the way the map display is.
+     */
+    private const TYPE_PRIORITY = [
+        'FMP' => 0,
+        'CTR' => 1,
+        'FSS' => 1,
+        'APP' => 2,
+        'DEP' => 2,
+        'TWR' => 3,
+        'GND' => 3,
+        'DEL' => 3,
+    ];
+
+    /**
+     * Online controllers matched to a known Sector.callsign, with the
+     * frequencies each is actually transmitting/receiving on per the AFV
+     * transceiver feed (App\Jobs\AFVTransieversUpdate) - a controller can
+     * be on more than one via AFV multiplexing, so this is a list, not a
+     * single frequency. Falls back to the datafeed's own single frequency
+     * if AFV data isn't cached yet. Ordered Flow, then Centre (incl. FSS),
+     * then Approach/Departure, then Tower/Ground/Delivery, alphabetically
+     * by sector within each tier.
      */
     public function controllers()
     {
         $data = Cache::remember('vatsimdata', 15, fn () => (new VATSIMClient)->getVATSIMData());
         $afvFrequencies = $this->afvFrequenciesByCallsign();
 
-        $sectorsByCallsign = Sector::whereNotNull('callsign')
-            ->whereIn('type', self::VISIBLE_SECTOR_TYPES)
-            ->pluck('name', 'callsign');
+        $sectorsByCallsign = Sector::whereNotNull('callsign')->get(['callsign', 'name', 'type'])->keyBy('callsign');
 
         $controllers = collect($data->controllers ?? [])
             ->filter(fn ($controller) => $sectorsByCallsign->has($controller->callsign))
-            ->map(fn ($controller) => [
-                'cid' => $controller->cid,
-                'callsign' => $controller->callsign,
-                'frequencies' => $afvFrequencies[$controller->callsign] ?? [(float) $controller->frequency],
-                'sector_name' => $sectorsByCallsign->get($controller->callsign),
-            ])
+            ->map(function ($controller) use ($sectorsByCallsign, $afvFrequencies) {
+                $sector = $sectorsByCallsign->get($controller->callsign);
+
+                return [
+                    'cid' => $controller->cid,
+                    'callsign' => $controller->callsign,
+                    'frequencies' => $afvFrequencies[$controller->callsign] ?? [(float) $controller->frequency],
+                    'sector_name' => $sector->name,
+                    'type' => $sector->type,
+                ];
+            })
+            ->sortBy(fn ($controller) => sprintf(
+                '%d-%s',
+                self::TYPE_PRIORITY[$controller['type']] ?? 99,
+                $controller['sector_name']
+            ))
             ->values();
 
         return response()->json($controllers);

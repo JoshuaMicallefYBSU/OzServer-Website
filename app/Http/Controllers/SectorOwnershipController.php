@@ -15,11 +15,24 @@ class SectorOwnershipController extends Controller
      * Sector::coveredSectors()) if the whole group is unowned. A sector
      * whose owner is no longer online under their claiming callsign is
      * treated as abandoned and replaced rather than blocking the claim.
+     *
+     * `exclude` (array of sector names, optional) is left out of the covered
+     * group entirely - not touched, not conflict-checked - letting a caller
+     * that already knows which of a primary's sub-sectors are contested
+     * (from a previous 409's `conflicts`) claim everything else in one shot
+     * while leaving those specific sub-sectors with their current owner.
+     * E.g. GUN extending WOL while BLA already has WOL's own sub-sector SNO:
+     * claiming WOL with SNO excluded gives GUN everything WOL covers except
+     * SNO, which stays BLA's, rather than blocking the whole claim.
      */
     public function claim(Request $request, Sector $sector)
     {
         $vatsim = $request->attributes->get('vatsim');
-        $covered = $sector->coveredSectors();
+        $exclude = array_filter((array) $request->input('exclude', []), 'is_string');
+
+        $covered = $sector->coveredSectors()->reject(fn (Sector $s) => in_array($s->name, $exclude, true));
+
+        $conflicts = [];
 
         foreach ($covered as $coveredSector) {
             $existing = $coveredSector->ownership;
@@ -38,15 +51,23 @@ class SectorOwnershipController extends Controller
             $stillOnline = (new VATSIMClient)->searchCallsign($existing->controller_callsign, true);
 
             if ($stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid) {
-                return response()->json([
-                    'message' => "Sector {$coveredSector->name} is already owned.",
+                $conflicts[] = [
                     'sector' => $coveredSector->name,
                     'owner' => [
                         'cid' => $existing->controller_cid,
                         'callsign' => $existing->controller_callsign,
                     ],
-                ], 409);
+                ];
             }
+        }
+
+        if ($conflicts !== []) {
+            return response()->json([
+                'message' => count($conflicts) === 1
+                    ? "Sector {$conflicts[0]['sector']} is already owned."
+                    : 'Some of these sectors are already owned.',
+                'conflicts' => $conflicts,
+            ], 409);
         }
 
         SectorOwnership::whereIn('sector_id', $covered->pluck('id'))->delete();

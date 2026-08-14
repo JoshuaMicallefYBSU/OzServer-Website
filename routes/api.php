@@ -10,6 +10,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/flights/live', [APIController::class, 'AFVTransievers']);
 
     Route::post('/fdr', [FlightDataRecordController::class, 'update'])->middleware('plugin.token');
+    Route::post('/fdr/batch', [FlightDataRecordController::class, 'batchUpdate'])->middleware('plugin.token');
 
     Route::get('/afv/transceivers', [AfvTransceiverController::class, 'index']);
 
