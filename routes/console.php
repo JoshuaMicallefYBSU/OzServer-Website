@@ -7,19 +7,11 @@ use App\Jobs\ReleaseStaleSectorOwnershipsJob;
 
 Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
 
-// Both jobs actually run on a true ~15s cadence via self-requeuing
-// (each dispatches itself again with a 15s delay at the end of its own
-// handle() - see the jobs themselves). These checks just restart the
-// chain if it ever goes quiet - cheap (a single cache read), so no more
-// blocking schedule:run for up to 45s like the old sleep-loop did.
-Schedule::call(function () {
-    if (! AFVTransieversUpdate::isRunning()) {
-        AFVTransieversUpdate::dispatch();
-    }
-})->everyMinute()->name('afv-transceivers-poll-healthcheck');
-
-Schedule::call(function () {
-    if (! ReleaseStaleSectorOwnershipsJob::isRunning()) {
-        ReleaseStaleSectorOwnershipsJob::dispatch();
-    }
-})->everyMinute()->name('release-stale-sectors-healthcheck');
+// Neither job is queued (ShouldQueue) - this environment only runs
+// schedule:run on a cron trigger, no persistent queue worker, so a
+// self-requeuing queued job would just sit unpicked. Schedule::job() runs
+// a non-queued job synchronously inline, and each job loops its own work
+// 4x ~15s apart internally (~45s total) to approximate a 15s cadence
+// within Laravel's 1-minute scheduler floor - see the jobs themselves.
+Schedule::job(new AFVTransieversUpdate)->everyMinute()->withoutOverlapping();
+Schedule::job(new ReleaseStaleSectorOwnershipsJob)->everyMinute()->withoutOverlapping();
