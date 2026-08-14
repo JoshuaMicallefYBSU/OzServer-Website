@@ -33,6 +33,14 @@
             .oz-sector-popup, .oz-aircraft-popup { color: #0f172a; font-family: ui-sans-serif, system-ui, sans-serif; }
             .oz-sector-popup h3, .oz-aircraft-popup h3 { margin: 0 0 4px; font-size: 14px; }
             .oz-sector-popup p, .oz-aircraft-popup p { margin: 2px 0; font-size: 12px; }
+            .oz-aircraft-popup { max-width: 260px; }
+            .oz-aircraft-popup .oz-route {
+                font-family: ui-monospace, monospace; font-size: 11px; color: #334155;
+                white-space: normal; word-break: break-word; margin-top: 6px;
+            }
+            .oz-aircraft-popup .oz-remarks {
+                font-size: 11px; color: #64748b; white-space: normal; word-break: break-word;
+            }
 
             .oz-aircraft-marker { pointer-events: auto; }
         </style>
@@ -123,6 +131,56 @@
                 `;
             }
 
+            function formatTime(iso) {
+                if (!iso) return null;
+                return new Date(iso).toISOString().slice(11, 16) + 'z';
+            }
+
+            function aircraftPopupHtml(flight) {
+                const squawk = flight.assigned_ssr_code !== null
+                    ? String(flight.assigned_ssr_code).padStart(4, '0')
+                    : null;
+
+                const levels = [
+                    flight.cfl_lower && flight.cfl_upper && flight.cfl_lower !== flight.cfl_upper
+                        ? `CFL ${flight.cfl_lower}-${flight.cfl_upper}`
+                        : (flight.cfl_lower ?? flight.cfl_upper) ? `CFL ${flight.cfl_lower ?? flight.cfl_upper}` : null,
+                    flight.rfl ? `RFL ${flight.rfl}` : null,
+                ].filter(Boolean).join(' · ');
+
+                const sidStarRunway = [flight.sid_star_string, flight.runway_string ?? flight.departure_runway]
+                    .filter(Boolean).join(' ');
+
+                const times = [
+                    flight.atd ? `ATD ${formatTime(flight.atd)}` : (flight.etd ? `ETD ${formatTime(flight.etd)}` : null),
+                    flight.eet_minutes ? `EET ${flight.eet_minutes}m` : null,
+                ].filter(Boolean).join(' · ');
+
+                const rows = [
+                    [flight.aircraft_type, flight.aircraft_wake ? `/${flight.aircraft_wake}` : ''].join(''),
+                    `${flight.dep_airport ?? '????'} → ${flight.des_airport ?? '????'}${sidStarRunway ? ' · ' + sidStarRunway : ''}`,
+                    levels || null,
+                    `${flight.altitude ?? '?'} ft · ${flight.ground_speed ?? '?'} kt${flight.heading !== null ? ' · ' + flight.heading + '°' : ''}`,
+                    squawk ? `Squawk ${squawk}` : null,
+                    times || null,
+                    flight.flight_rules ? `Rules: ${flight.flight_rules}` : null,
+                    flight.state ? `State: ${flight.state}` : null,
+                    flight.controlling_callsign ? `Controlling: ${flight.controlling_callsign}` : null,
+                ].filter(Boolean);
+
+                const routeLine = flight.route ? `<p class="oz-route">${flight.route}</p>` : '';
+                const remarksLine = flight.remarks ? `<p class="oz-remarks">${flight.remarks}</p>` : '';
+
+                return `
+                    <div class="oz-aircraft-popup">
+                        <h3>${flight.callsign}</h3>
+                        ${rows.map((row) => `<p>${row}</p>`).join('')}
+                        ${routeLine}
+                        ${remarksLine}
+                    </div>
+                `;
+            }
+
             async function refreshSectors() {
                 const response = await fetch('/api/v1/map/sectors', { headers: { Accept: 'application/json' } });
                 const sectors = await response.json();
@@ -195,14 +253,7 @@
 
                     marker.setLngLat([flight.lon, flight.lat]);
                     marker.setRotation(flight.heading ?? 0);
-                    marker.getPopup().setHTML(`
-                        <div class="oz-aircraft-popup">
-                            <h3>${flight.callsign}</h3>
-                            <p>${flight.aircraft_type ?? ''}</p>
-                            <p>${flight.dep_airport ?? '????'} → ${flight.des_airport ?? '????'}</p>
-                            <p>${flight.altitude ?? '?'} ft · ${flight.ground_speed ?? '?'} kt</p>
-                        </div>
-                    `);
+                    marker.getPopup().setHTML(aircraftPopupHtml(flight));
                     marker.addTo(map);
                 });
 

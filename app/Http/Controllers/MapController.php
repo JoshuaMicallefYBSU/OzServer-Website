@@ -71,16 +71,25 @@ class MapController extends Controller
     }
 
     /**
-     * Recently-seen aircraft with position data. Rows older than 5 minutes
-     * are dropped here rather than needing a separate cleanup job.
+     * Recently-seen aircraft with position data - everything the popup
+     * needs to show the full FDR picture for a flight, not just enough to
+     * place the marker. Rows older than 5 minutes are dropped here rather
+     * than needing a separate cleanup job. Requires `lat` (no position, no
+     * marker) - if nothing shows up here, check that the plugin is
+     * actually sending position fields on its /v1/fdr pushes, not just the
+     * flight-plan fields.
      */
     public function aircraft()
     {
         $flights = FlightDataRecord::whereNotNull('lat')
             ->where('last_seen_at', '>=', now()->subMinutes(5))
             ->get([
-                'callsign', 'lat', 'lon', 'heading', 'altitude', 'ground_speed',
-                'aircraft_type', 'dep_airport', 'des_airport', 'rfl', 'cfl_lower', 'cfl_upper', 'state',
+                'callsign', 'lat', 'lon', 'heading', 'altitude', 'ground_speed', 'vertical_rate', 'on_ground',
+                'aircraft_type', 'aircraft_wake', 'aircraft_equip', 'aircraft_surv_equip',
+                'dep_airport', 'des_airport', 'route', 'sid_star_string', 'runway_string', 'departure_runway',
+                'flight_rules', 'rfl', 'cfl_lower', 'cfl_upper', 'assigned_ssr_code',
+                'atd', 'etd', 'eet_minutes', 'tas', 'state', 'remarks',
+                'controlling_cid', 'controlling_callsign', 'last_seen_at',
             ]);
 
         return response()->json($flights);
