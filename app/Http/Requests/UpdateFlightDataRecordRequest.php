@@ -12,7 +12,7 @@ class UpdateFlightDataRecordRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        // Identity is verified by the vatsim.verified middleware before this
+        // Identity is verified by the plugin.token middleware before this
         // request class is resolved.
         return true;
     }

@@ -39,4 +39,8 @@ return [
         'token' => env('MAPBOX_ACCESS_TOKEN'),
     ],
 
+    'plugin' => [
+        'token' => env('PLUGIN_TOKEN'),
+    ],
+
 ];
