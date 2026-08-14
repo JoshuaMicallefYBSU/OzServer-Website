@@ -28,6 +28,14 @@ class UpdateFlightDataRecordRequest extends FormRequest
             'controller_cid' => ['required', 'integer'],
             'controller_callsign' => ['required', 'string'],
 
+            // Datalink authority - who the submitting plugin's own FDP2.FDR.ControllerTracking
+            // says currently owns this flight, which is not necessarily the submitter
+            // (controller_cid/controller_callsign above): a controller merely observing a flight
+            // still pushes its data, attributing authority to whoever actually has it (self,
+            // another controller's callsign, or neither - null - when nobody has assumed it yet).
+            'controlling_cid' => ['nullable', 'integer'],
+            'controlling_callsign' => ['nullable', 'string', 'max:20'],
+
             'callsign' => ['required', 'string', 'max:20'],
             'state' => ['nullable', 'string', 'max:50'],
             'flight_rules' => ['nullable', 'string', 'max:1'],
