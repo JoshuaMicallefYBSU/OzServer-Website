@@ -354,8 +354,8 @@
                 controllersList.innerHTML = controllers.length
                     ? controllers.map((c) => `
                         <li>
-                            <span class="oz-controller-main">${c.callsign} · ${c.sector_name} <span>${c.frequencies.join(', ')}</span></span>
-                            ${sourceIconHtml(c.is_ozserver)}
+                            ${sourceIconHtml(c.is_ozserver)}<span class="oz-controller-main">${c.sector_name} <span>${c.frequencies.join(', ')}</span></span>
+                            
                         </li>
                     `).join('')
                     : '<li class="oz-empty">No sectors staffed</li>';
