@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AtisBroadcast;
 use App\Models\FlightDataRecord;
+use App\Models\Position;
 use App\Models\Sector;
+use App\Models\SectorOwnership;
 use App\Services\VATSIMClient;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -96,6 +99,41 @@ class MapController extends Controller
     }
 
     /**
+     * ATIS broadcasts currently saved in the DB (App\Jobs\PruneStaleAtisJob
+     * drops rows once they're 90 minutes stale, so nothing further to
+     * filter by age here), placed using the airport's vatSys ASMGCS
+     * position as a stand-in for the airport's own coordinates. Only
+     * `positions` rows with an ASMGCSAirport are usable for this, so an
+     * ATIS for an airport without a defined ground/ASMGCS position in the
+     * dataset is dropped rather than shown with no location.
+     */
+    public function atis()
+    {
+        $airportCoordinates = Position::whereNotNull('asmgcs_airport')
+            ->get(['asmgcs_airport', 'default_lat', 'default_lon'])
+            ->keyBy('asmgcs_airport');
+
+        return response()->json(
+            AtisBroadcast::all()
+                ->map(function (AtisBroadcast $atis) use ($airportCoordinates) {
+                    $position = $airportCoordinates->get($atis->icao);
+
+                    return [
+                        'icao' => $atis->icao,
+                        'atis_letter' => $atis->atis_letter,
+                        'content' => $atis->content,
+                        'frequency' => $atis->frequency,
+                        'last_seen_at' => $atis->last_seen_at,
+                        'lat' => $position?->default_lat,
+                        'lon' => $position?->default_lon,
+                    ];
+                })
+                ->filter(fn (array $atis) => $atis['lat'] !== null && $atis['lon'] !== null)
+                ->values()
+        );
+    }
+
+    /**
      * Sort priority for the online-controllers list: Flow first, then
      * Centre/FSS, then Approach/Departure together, then Tower/Ground/
      * Delivery together - not the same restricted set the map's sector
@@ -122,6 +160,11 @@ class MapController extends Controller
      * if AFV data isn't cached yet. Ordered Flow, then Centre (incl. FSS),
      * then Approach/Departure, then Tower/Ground/Delivery, alphabetically
      * by sector within each tier.
+     *
+     * `is_ozserver` reflects whether the controller currently holds their
+     * sector via a SectorOwnership row - i.e. actually claimed it through
+     * the OzServer plugin - rather than just being visible on the raw
+     * VATSIM datafeed on a recognised position/callsign.
      */
     public function controllers()
     {
@@ -129,10 +172,11 @@ class MapController extends Controller
         $afvFrequencies = $this->afvFrequenciesByCallsign();
 
         $sectorsByCallsign = Sector::whereNotNull('callsign')->get(['callsign', 'name', 'type'])->keyBy('callsign');
+        $ozserverCids = SectorOwnership::pluck('controller_cid')->all();
 
         $controllers = collect($data->controllers ?? [])
             ->filter(fn ($controller) => $sectorsByCallsign->has($controller->callsign))
-            ->map(function ($controller) use ($sectorsByCallsign, $afvFrequencies) {
+            ->map(function ($controller) use ($sectorsByCallsign, $afvFrequencies, $ozserverCids) {
                 $sector = $sectorsByCallsign->get($controller->callsign);
 
                 return [
@@ -141,6 +185,7 @@ class MapController extends Controller
                     'frequencies' => $afvFrequencies[$controller->callsign] ?? [(float) $controller->frequency],
                     'sector_name' => $sector->name,
                     'type' => $sector->type,
+                    'is_ozserver' => in_array((int) $controller->cid, $ozserverCids, true),
                 ];
             })
             ->sortBy(fn ($controller) => sprintf(

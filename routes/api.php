@@ -40,5 +40,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/sectors', [MapController::class, 'sectors']);
         Route::get('/aircraft', [MapController::class, 'aircraft']);
         Route::get('/controllers', [MapController::class, 'controllers']);
+        Route::get('/atis', [MapController::class, 'atis']);
     });
 });

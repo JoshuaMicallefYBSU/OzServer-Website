@@ -23,16 +23,25 @@
                 font-size: 13px;
             }
 
-            .oz-controllers-panel { top: 16px; right: 16px; min-width: 200px; max-height: 60vh; overflow-y: auto; }
+            .oz-controllers-panel { top: 16px; right: 16px; min-width: 220px; max-height: 60vh; overflow-y: auto; }
             .oz-controllers-panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
             .oz-controllers-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-            .oz-controllers-panel li { display: flex; gap: 8px; font-family: ui-monospace, monospace; }
+            .oz-controllers-panel li { display: flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace; }
             .oz-controllers-panel li span { color: #67e8f9; }
+            .oz-controllers-panel li .oz-controller-main { flex: 1; }
             .oz-controllers-panel .oz-empty { color: #64748b; font-family: inherit; }
 
-            .oz-sector-popup, .oz-aircraft-popup { color: #0f172a; font-family: ui-sans-serif, system-ui, sans-serif; }
-            .oz-sector-popup h3, .oz-aircraft-popup h3 { margin: 0 0 4px; font-size: 14px; }
-            .oz-sector-popup p, .oz-aircraft-popup p { margin: 2px 0; font-size: 12px; }
+            .oz-source-icon {
+                flex-shrink: 0; width: 15px; height: 15px; border-radius: 50%;
+                display: inline-flex; align-items: center; justify-content: center;
+                font-size: 10px; font-weight: 700; line-height: 1; font-family: ui-sans-serif, system-ui, sans-serif;
+            }
+            .oz-source-icon.oz-ozserver { background: rgba(34, 211, 238, 0.2); color: #22d3ee; border: 1px solid #22d3ee; }
+            .oz-source-icon.oz-not-ozserver { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid #f87171; }
+
+            .oz-sector-popup, .oz-aircraft-popup, .oz-atis-popup { color: #0f172a; font-family: ui-sans-serif, system-ui, sans-serif; }
+            .oz-sector-popup h3, .oz-aircraft-popup h3, .oz-atis-popup h3 { margin: 0 0 4px; font-size: 14px; }
+            .oz-sector-popup p, .oz-aircraft-popup p, .oz-atis-popup p { margin: 2px 0; font-size: 12px; }
             .oz-aircraft-popup { max-width: 260px; }
             .oz-aircraft-popup .oz-route {
                 font-family: ui-monospace, monospace; font-size: 11px; color: #334155;
@@ -41,8 +50,16 @@
             .oz-aircraft-popup .oz-remarks {
                 font-size: 11px; color: #64748b; white-space: normal; word-break: break-word;
             }
+            .oz-atis-popup { max-width: 240px; }
 
             .oz-aircraft-marker { pointer-events: auto; }
+
+            .oz-atis-marker {
+                pointer-events: auto; width: 22px; height: 22px; border-radius: 50%;
+                background: #1e293b; border: 2px solid #a78bfa; color: #a78bfa;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 10px; font-weight: 700; font-family: ui-sans-serif, system-ui, sans-serif;
+            }
         </style>
     </head>
     <body>
@@ -61,6 +78,15 @@
             });
 
             const aircraftMarkers = new Map(); // callsign -> mapboxgl.Marker
+            const atisMarkers = new Map(); // icao -> mapboxgl.Marker
+
+            // Info icon for connections claimed via the OzServer plugin, X
+            // for ones only visible on the raw VATSIM datafeed.
+            function sourceIconHtml(isOzserver) {
+                return isOzserver
+                    ? '<span class="oz-source-icon oz-ozserver" title="Connected via OzServer">i</span>'
+                    : '<span class="oz-source-icon oz-not-ozserver" title="Not connected via OzServer">&times;</span>';
+            }
 
             // A handful of oceanic sectors (e.g. NZZO, NFFF) cross the
             // antimeridian. Without unwrapping, those rings jump straight
@@ -181,6 +207,28 @@
                 `;
             }
 
+            // Frequencies are stored FSD-style (freq_mhz - 100) * 1000, e.g.
+            // 132.500 MHz is saved as 32500 - see AtisController/migration.
+            function formatAtisFrequency(frequency) {
+                return frequency !== null ? (100 + frequency / 1000).toFixed(3) : null;
+            }
+
+            function atisPopupHtml(atis) {
+                const freq = formatAtisFrequency(atis.frequency);
+                const contentRows = Object.entries(atis.content ?? {})
+                    .map(([field, value]) => `<p><strong>${field}:</strong> ${value}</p>`)
+                    .join('');
+
+                return `
+                    <div class="oz-atis-popup">
+                        <h3>${atis.icao} ATIS ${atis.atis_letter}</h3>
+                        ${freq ? `<p>${freq} MHz</p>` : ''}
+                        ${contentRows}
+                        <p>Last seen ${formatTime(atis.last_seen_at)}</p>
+                    </div>
+                `;
+            }
+
             async function refreshSectors() {
                 const response = await fetch('/api/v1/map/sectors', { headers: { Accept: 'application/json' } });
                 const sectors = await response.json();
@@ -265,18 +313,58 @@
                 }
             }
 
+            async function refreshAtis() {
+                const response = await fetch('/api/v1/map/atis', { headers: { Accept: 'application/json' } });
+                const broadcasts = await response.json();
+
+                const seen = new Set();
+
+                broadcasts.forEach((atis) => {
+                    seen.add(atis.icao);
+
+                    let marker = atisMarkers.get(atis.icao);
+
+                    if (!marker) {
+                        const el = document.createElement('div');
+                        el.className = 'oz-atis-marker';
+                        el.textContent = 'A';
+
+                        marker = new mapboxgl.Marker({ element: el });
+                        marker.setPopup(new mapboxgl.Popup({ offset: 12 }));
+                        atisMarkers.set(atis.icao, marker);
+                    }
+
+                    marker.setLngLat([atis.lon, atis.lat]);
+                    marker.getPopup().setHTML(atisPopupHtml(atis));
+                    marker.addTo(map);
+                });
+
+                for (const [icao, marker] of atisMarkers) {
+                    if (!seen.has(icao)) {
+                        marker.remove();
+                        atisMarkers.delete(icao);
+                    }
+                }
+            }
+
             async function refreshControllers() {
                 const response = await fetch('/api/v1/map/controllers', { headers: { Accept: 'application/json' } });
                 const controllers = await response.json();
 
                 controllersList.innerHTML = controllers.length
-                    ? controllers.map((c) => `<li>${c.sector_name} <span>${c.frequencies.join(', ')}</span></li>`).join('')
+                    ? controllers.map((c) => `
+                        <li>
+                            <span class="oz-controller-main">${c.callsign} · ${c.sector_name} <span>${c.frequencies.join(', ')}</span></span>
+                            ${sourceIconHtml(c.is_ozserver)}
+                        </li>
+                    `).join('')
                     : '<li class="oz-empty">No sectors staffed</li>';
             }
 
             function refreshAll() {
                 refreshSectors();
                 refreshAircraft();
+                refreshAtis();
                 refreshControllers();
             }
 
