@@ -30,6 +30,27 @@ class ReleaseStaleSectorOwnershipsJob
 
     private const INTERVAL_SECONDS = 15;
 
+    /**
+     * How long a freshly claimed sector is immune from being released as
+     * stale.
+     *
+     * Without this, claiming and being reaped race each other and the reap
+     * wins: the plugin claims the moment it connects (AfvSectorClaimer::Init
+     * -> the tracker's claim pass), but a new connection does not appear in
+     * VATSIM's v3 datafeed for tens of seconds, and getCurrentData() caches
+     * that feed for another 15s on top. This job runs four passes a minute,
+     * so the first pass after a connect looked the new owner up, could not
+     * find them online yet, and concluded they had disconnected - deleting
+     * every sector they had just claimed, including their own primary. From
+     * the controller's seat that reads as "it took my sectors off me a few
+     * seconds after I logged on".
+     *
+     * Three minutes is comfortably past both the feed's own publish interval
+     * and the cache, while still well inside the window where a genuinely
+     * disconnected controller's sectors need freeing.
+     */
+    private const CLAIM_GRACE_SECONDS = 180;
+
     public function handle(): void
     {
         for ($i = 0; $i < self::PASSES; $i++) {
@@ -54,7 +75,13 @@ class ReleaseStaleSectorOwnershipsJob
             return;
         }
 
+        $cutoff = now()->subSeconds(self::CLAIM_GRACE_SECONDS);
+
+        // Only owners holding something past the grace period are candidates -
+        // a controller whose every claim is still fresh cannot be stale yet,
+        // and skipping them here also saves the datafeed lookup below.
         $owners = SectorOwnership::query()
+            ->where('created_at', '<=', $cutoff)
             ->select('controller_cid', 'controller_callsign')
             ->distinct()
             ->get();
@@ -66,9 +93,17 @@ class ReleaseStaleSectorOwnershipsJob
                 continue;
             }
 
+            // Grace applies per ownership row, not just per owner: a controller
+            // who reconnects and re-claims while an older claim of theirs is
+            // still on the books must not have the new one swept up with it.
             $sectorIds = SectorOwnership::where('controller_cid', $owner->controller_cid)
                 ->where('controller_callsign', $owner->controller_callsign)
+                ->where('created_at', '<=', $cutoff)
                 ->pluck('sector_id');
+
+            if ($sectorIds->isEmpty()) {
+                continue;
+            }
 
             SectorOwnership::whereIn('sector_id', $sectorIds)
                 ->where('controller_cid', $owner->controller_cid)
