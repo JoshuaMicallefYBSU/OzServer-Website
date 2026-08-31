@@ -58,6 +58,10 @@ class Sector extends Model
     {
         $names = [$this->name, ...($this->responsible_sectors ?? [])];
 
-        return self::whereIn('name', $names)->get();
+        // Ownership eager-loaded because every caller immediately asks for it:
+        // claim() inspects ->ownership once per covered sector, so a group like
+        // ARL (which covers six others) issued seven separate queries per claim
+        // - and the plugin re-asserts claims on every MMI change.
+        return self::whereIn('name', $names)->with('ownership')->get();
     }
 }

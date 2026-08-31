@@ -14,31 +14,27 @@ use App\Services\VATSIMClient;
  * the map and the plugin's Controlled list don't sit on stale ownership
  * between claims.
  *
- * Laravel's scheduler has no sub-minute frequency (no ->everyFifteenSeconds()
- * - cron itself is minute-granularity), and this environment only runs
- * `schedule:run` on a cron trigger - no persistent queue worker - so a
- * self-requeuing queued job has nothing to pick it up. Instead, the 15s
- * cadence is looped *inside* handle() itself: 4 passes ~15s apart (~45s
- * total), triggered once per minute via `Schedule::job(new
- * ReleaseStaleSectorOwnershipsJob)->everyMinute()` in routes/console.php.
- * Bounded, so it always finishes and returns well inside the next minute's
- * tick - no risk of piling up overlapping schedule:run processes.
+ * Runs once per minute and returns immediately.
+ *
+ * It used to loop four passes ~15s apart inside handle(), sleeping between
+ * them, to get a sub-minute cadence out of a minute-granularity cron. That
+ * kept a PHP process (and its database connection) alive for roughly 45
+ * seconds of every 60 - alongside AFVTransieversUpdate doing the same thing
+ * - which is a lot of a small host's workers to hold open permanently, and
+ * it re-stamped every online owner's last_seen_online_at four times a minute
+ * instead of once.
+ *
+ * That cadence bought nothing once ownership gained a disconnect grace:
+ * SectorOwnership::DISCONNECT_GRACE_MINUTES is five minutes, so noticing a
+ * departure at 15s versus 60s granularity cannot change any outcome. The
+ * reactive path in SectorOwnershipController::claim already covers the case
+ * where someone actively wants a stale sector before this job gets to it.
  */
 class ReleaseStaleSectorOwnershipsJob
 {
-    private const PASSES = 4;
-
-    private const INTERVAL_SECONDS = 15;
-
     public function handle(): void
     {
-        for ($i = 0; $i < self::PASSES; $i++) {
-            $this->releaseStale();
-
-            if ($i < self::PASSES - 1) {
-                sleep(self::INTERVAL_SECONDS);
-            }
-        }
+        $this->releaseStale();
     }
 
     private function releaseStale(): void
@@ -60,12 +56,12 @@ class ReleaseStaleSectorOwnershipsJob
             ->get();
 
         foreach ($owners as $owner) {
-            $stillOnline = $vatsim->searchCallsign($owner->controller_callsign, true);
+            $ownerOnline = $vatsim->isControllerOnline($owner->controller_callsign, $owner->controller_cid);
 
             $ownerships = SectorOwnership::where('controller_cid', $owner->controller_cid)
                 ->where('controller_callsign', $owner->controller_callsign);
 
-            if ($stillOnline !== null && (int) $stillOnline->cid === $owner->controller_cid) {
+            if ($ownerOnline) {
                 // Seen online: stamp them, which is what the grace period below
                 // and claim()'s takeover check are both measured from.
                 (clone $ownerships)->update(['last_seen_online_at' => now()]);

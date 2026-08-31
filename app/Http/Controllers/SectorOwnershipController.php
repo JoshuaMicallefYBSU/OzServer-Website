@@ -32,6 +32,8 @@ class SectorOwnershipController extends Controller
 
         $covered = $sector->coveredSectors()->reject(fn (Sector $s) => in_array($s->name, $exclude, true));
 
+        // One client for the whole loop; its lookup map is built at most once.
+        $vatsimClient = new VATSIMClient;
         $conflicts = [];
 
         foreach ($covered as $coveredSector) {
@@ -64,8 +66,12 @@ class SectorOwnershipController extends Controller
                 continue;
             }
 
-            $stillOnline = (new VATSIMClient)->searchCallsign($existing->controller_callsign, true);
-            $ownerOnline = $stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid;
+            // Map lookup, not a datafeed scan - this runs once per covered sector, so a group
+            // like ARL used to rescan the whole feed seven times for one claim.
+            $ownerOnline = $vatsimClient->isControllerOnline(
+                $existing->controller_callsign,
+                $existing->controller_cid
+            );
 
             // Offline but still inside their disconnect grace: they dropped out
             // rather than left (a clean exit releases explicitly - see
@@ -92,12 +98,37 @@ class SectorOwnershipController extends Controller
             ], 409);
         }
 
-        SectorOwnership::whereIn('sector_id', $covered->pluck('id'))->delete();
+        // Only the rows this claim is actually entitled to take: unowned, already this
+        // controller's, or left behind by an owner who is neither online nor still inside their
+        // disconnect grace. Anything a live controller holds is left exactly where it is.
+        //
+        // This used to delete every covered row unconditionally the moment the conflict scan above
+        // passed. That scan asks the VATSIM datafeed whether the current owner is online, and that
+        // feed is cached for 15 seconds and lags a new connection by considerably longer - so a
+        // routine re-claim could sail straight past it and silently delete ownership somebody else
+        // had legitimately just been given. ARL is responsible for CNK, so the plugin re-asserting
+        // ARL (which it does on every MMI change) took a freshly transferred CNK back off its new
+        // owner, and handed the whole Armidale group back with it.
+        //
+        // Ownership is decided from the ownership table here, not from the datafeed. The datafeed
+        // only ever decides whether a *conflict* is worth reporting.
+        $takeable = $covered->filter(function (Sector $coveredSector) use ($vatsim) {
+            $existing = $coveredSector->ownership;
 
-        $ownerships = $covered->map(fn (Sector $coveredSector) => SectorOwnership::create([
+            return $existing === null
+                || $existing->controller_cid === $vatsim['cid']
+                || ! $existing->withinDisconnectGrace();
+        });
+
+        SectorOwnership::whereIn('sector_id', $takeable->pluck('id'))->delete();
+
+        $ownerships = $takeable->map(fn (Sector $coveredSector) => SectorOwnership::create([
             'sector_id' => $coveredSector->id,
             'controller_cid' => $vatsim['cid'],
             'controller_callsign' => $vatsim['callsign'],
+            // Claiming proves this controller is here, so the grace window starts now rather than
+            // inheriting whatever the previous row happened to carry.
+            'last_seen_online_at' => now(),
         ]));
 
         return response()->json($ownerships, 201);
@@ -301,6 +332,11 @@ class SectorOwnershipController extends Controller
             ->update([
                 'controller_cid' => $sectorOwnershipRequest->requesting_cid,
                 'controller_callsign' => $sectorOwnershipRequest->requesting_callsign,
+                // Restamped for the new owner. Without this the row kept the *previous* owner's
+                // last_seen_online_at, which could already be older than the disconnect grace - so
+                // a sector transferred to a controller who is demonstrably here (they just asked
+                // for it) was immediately takeable by the next claim that covered it.
+                'last_seen_online_at' => now(),
             ]);
 
         // Any other pending requests for this sector are moot now. Rejected

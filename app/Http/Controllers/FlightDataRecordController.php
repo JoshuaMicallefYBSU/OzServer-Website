@@ -111,7 +111,13 @@ class FlightDataRecordController extends Controller
             $existing = $existingByCallsign->get($callsign);
 
             if ($existing !== null && $existing->controlling_cid !== null && $existing->controlling_cid !== $vatsim['cid']) {
-                $authorityOnline = $vatsimClient->searchCallsign($existing->controlling_callsign, true) !== null;
+                // isControllerOnline, not searchCallsign: the latter pulls the whole multi-megabyte
+                // datafeed back out of the cache, unserialises it and scans its controllers array
+                // linearly - per call, still once per flight even after this loop stopped repeating
+                // everything else. The lookup map is built at most once per request (see
+                // VATSIMClient::onlineControllers), so a fifty-flight batch costs one table rather
+                // than fifty scans.
+                $authorityOnline = $vatsimClient->isControllerOnline($existing->controlling_callsign);
                 $authorityHasSectors = in_array((int) $existing->controlling_cid, $cidsWithSectors, true);
 
                 if ($authorityOnline && $authorityHasSectors) {
