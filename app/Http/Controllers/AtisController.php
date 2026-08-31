@@ -29,4 +29,15 @@ class AtisController extends Controller
 
         return response()->json($atis);
     }
+
+    /**
+     * The current ATIS for a single airport, or null if none is on file
+     * (nothing broadcast yet, or it's since expired via PruneStaleAtisJob).
+     */
+    public function show(string $icao)
+    {
+        return response()->json(
+            AtisBroadcast::where('icao', strtoupper($icao))->first()
+        );
+    }
 }

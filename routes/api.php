@@ -14,6 +14,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/fdr/batch', [FlightDataRecordController::class, 'batchUpdate'])->middleware('plugin.token');
 
     Route::post('/atis', [AtisController::class, 'update'])->middleware('plugin.token');
+    Route::get('/atis/{icao}', [AtisController::class, 'show']);
 
     Route::get('/afv/transceivers', [AfvTransceiverController::class, 'index']);
 
