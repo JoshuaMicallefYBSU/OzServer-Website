@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FlightDataRecord;
 use App\Models\Sector;
 use App\Models\SectorOwnership;
 use App\Models\SectorOwnershipRequest;
@@ -161,6 +162,14 @@ class SectorOwnershipController extends Controller
 
         SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
 
+        // Only once every sector's gone, not just this one - releasing TWR
+        // while still holding APP doesn't mean they've lost authority over
+        // anything, since a flight's controlling_cid isn't tied to any
+        // particular sector.
+        if (! SectorOwnership::where('controller_cid', $vatsim['cid'])->exists()) {
+            FlightDataRecord::releaseAuthorityFor($vatsim['cid']);
+        }
+
         return response()->noContent();
     }
 
@@ -170,8 +179,8 @@ class SectorOwnershipController extends Controller
      * The plugin calls this on a *graceful* disconnect only - closing vatSys
      * while connected, or pressing Disconnect. An ungraceful disconnect (a
      * crash, a dropped connection) sends nothing at all, and that silence is
-     * exactly what distinguishes the two: ReleaseStaleSectorOwnershipsJob then
-     * holds those sectors for SectorOwnership::DISCONNECT_GRACE_MINUTES so
+     * exactly what distinguishes the two: RefreshVatsimLiveDataJob then holds
+     * those sectors for SectorOwnership::DISCONNECT_GRACE_MINUTES so
      * reconnecting picks up where they left off.
      */
     public function releaseAll(Request $request)
@@ -195,6 +204,10 @@ class SectorOwnershipController extends Controller
         // clears this controller's own outgoing requests: they have gone.
         SectorOwnershipRequest::whereIn('sector_id', $sectorIds)->delete();
         SectorOwnershipRequest::where('requesting_cid', $vatsim['cid'])->delete();
+
+        // Every sector just went at once, so unlike release() there's no need
+        // to check what's left - they hold nothing now.
+        FlightDataRecord::releaseAuthorityFor($vatsim['cid']);
 
         return response()->noContent();
     }
@@ -343,6 +356,12 @@ class SectorOwnershipController extends Controller
         // ones are left alone - they are already decided and are only waiting
         // to be collected by the controller they were rejected on.
         SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
+
+        // The old owner just lost this sector to the transfer above - if that
+        // was their last one, same as release() dropping them to zero.
+        if (! SectorOwnership::where('controller_cid', $cid)->exists()) {
+            FlightDataRecord::releaseAuthorityFor($cid);
+        }
 
         return true;
     }

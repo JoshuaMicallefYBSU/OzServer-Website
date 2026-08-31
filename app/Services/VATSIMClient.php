@@ -12,9 +12,9 @@ class VATSIMClient
 
     /**
      * A hung or failed request here must not be allowed to leave the caller
-     * blocked indefinitely - ReleaseStaleSectorOwnershipsJob and
-     * AFVTransieversUpdate both run inline inside the scheduler's process
-     * (see their class docs), and an uncaught exception or unbounded wait
+     * blocked indefinitely - RefreshVatsimLiveDataJob runs both the AFV feed
+     * fetch and the stale-ownership release inline inside the scheduler's
+     * process (see its class doc), and an uncaught exception or unbounded wait
      * there can outlive the shared host's process limits, getting the
      * process killed before it releases its ->withoutOverlapping() mutex -
      * silently wedging the job for the lock's full expiry.
@@ -54,9 +54,12 @@ class VATSIMClient
      * exactly that: SectorOwnershipController::claim ran it once per covered
      * sector (seven for a group like ARL), FlightDataRecordController::upsert
      * once per flight in a batch - pushed every five seconds by every
-     * connected client - and ReleaseStaleSectorOwnershipsJob once per owner,
-     * four times a minute. Together they re-read and re-scanned that payload
-     * thousands of times a minute, which is what pinned the host CPU.
+     * connected client - and the sector-ownership release once per owner,
+     * four times a minute (back when that logic looped sub-minute like the
+     * AFV fetch still does; it's since settled to once per invocation -
+     * see RefreshVatsimLiveDataJob). Together they re-read and re-scanned
+     * that payload thousands of times a minute, which is what pinned the
+     * host CPU.
      *
      * The derived map is cached instead - a few hundred short strings rather
      * than the entire feed - and memoised for the life of the request, so a

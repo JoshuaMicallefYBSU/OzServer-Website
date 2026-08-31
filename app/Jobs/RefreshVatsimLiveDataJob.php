@@ -2,45 +2,58 @@
 
 namespace App\Jobs;
 
+use App\Models\FlightDataRecord;
 use App\Models\SectorOwnership;
 use App\Models\SectorOwnershipRequest;
 use App\Services\VATSIMClient;
+use Illuminate\Support\Facades\Storage;
 
 /**
- * Releases any sector whose owning controller is no longer online under
- * their claiming callsign - the same disconnect self-heal already applied
- * reactively when someone else tries to claim a stale sector (App\Http\
- * Controllers\SectorOwnershipController::claim), just run proactively so
- * the map and the plugin's Controlled list don't sit on stale ownership
- * between claims.
+ * The two things this site pulls from VATSIM every minute, combined into one
+ * job so the scheduler forks a single process for them instead of two:
  *
- * Runs once per minute and returns immediately.
+ * - The AFV transceiver feed, cached to storage at ~15s resolution for the
+ *   map's online-controller frequency list and for external plugins
+ *   (App\Http\Controllers\AfvTransceiverController). Laravel's scheduler has
+ *   no sub-minute frequency, so the 15s cadence is looped *inside* handle()
+ *   itself: 4 passes ~15s apart (~45s total), triggered once a minute.
  *
- * It used to loop four passes ~15s apart inside handle(), sleeping between
- * them, to get a sub-minute cadence out of a minute-granularity cron. That
- * kept a PHP process (and its database connection) alive for roughly 45
- * seconds of every 60 - alongside AFVTransieversUpdate doing the same thing
- * - which is a lot of a small host's workers to hold open permanently, and
- * it re-stamped every online owner's last_seen_online_at four times a minute
- * instead of once.
- *
- * That cadence bought nothing once ownership gained a disconnect grace:
- * SectorOwnership::DISCONNECT_GRACE_MINUTES is five minutes, so noticing a
- * departure at 15s versus 60s granularity cannot change any outcome. The
- * reactive path in SectorOwnershipController::claim already covers the case
- * where someone actively wants a stale sector before this job gets to it.
+ * - Releasing any sector whose owning controller is no longer online under
+ *   their claiming callsign, at ordinary once-a-minute resolution - the same
+ *   disconnect self-heal already applied reactively when someone else tries
+ *   to claim a stale sector (SectorOwnershipController::claim), just run
+ *   proactively so the map and the plugin's Controlled list don't sit on
+ *   stale ownership between claims. SectorOwnership::DISCONNECT_GRACE_MINUTES
+ *   is measured in whole minutes, so there is nothing for the 15s cadence
+ *   above to buy this half - it runs once per invocation, not once per pass.
  */
-class ReleaseStaleSectorOwnershipsJob
+class RefreshVatsimLiveDataJob
 {
-    public function handle(): void
-    {
-        $this->releaseStale();
-    }
+    private const AFV_PASSES = 4;
 
-    private function releaseStale(): void
+    private const AFV_INTERVAL_SECONDS = 15;
+
+    public function handle(): void
     {
         $vatsim = new VATSIMClient;
 
+        $this->releaseStaleOwnerships($vatsim);
+
+        for ($i = 0; $i < self::AFV_PASSES; $i++) {
+            $transceivers = $vatsim->getAFVTransievers();
+
+            if ($transceivers !== null) {
+                Storage::put('afv-transceivers.json', json_encode($transceivers));
+            }
+
+            if ($i < self::AFV_PASSES - 1) {
+                sleep(self::AFV_INTERVAL_SECONDS);
+            }
+        }
+    }
+
+    private function releaseStaleOwnerships(VATSIMClient $vatsim): void
+    {
         // Can't confirm anyone's actually offline right now - skip this pass
         // rather than risk treating a transient VATSIM outage as every
         // controller network-wide having disconnected at once.
@@ -94,8 +107,18 @@ class ReleaseStaleSectorOwnershipsJob
                 ->where('controller_callsign', $owner->controller_callsign)
                 ->delete();
 
-            // Nothing left to accept/reject once the sector's unowned.
+            // Nothing left to accept/reject once the sector's unowned, and this
+            // controller isn't coming back to act on anything they'd requested
+            // from someone else either - mirrors releaseAll()'s cleanup for a
+            // graceful disconnect, just triggered by the feed going quiet
+            // instead of the plugin telling us directly.
             SectorOwnershipRequest::whereIn('sector_id', $sectorIds)->delete();
+            SectorOwnershipRequest::where('requesting_cid', $owner->controller_cid)->delete();
+
+            // $sectorIds above is every stale sector under this owner's
+            // (cid, callsign) identity, so this owner now holds zero -
+            // release any flight still attributing authority to them too.
+            FlightDataRecord::releaseAuthorityFor($owner->controller_cid);
         }
     }
 }

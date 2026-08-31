@@ -12,7 +12,7 @@ class SectorOwnership extends Model
      * Also covers the lag between a brand-new connection claiming its sectors
      * and that connection showing up in the feed at all.
      */
-    public const DISCONNECT_GRACE_MINUTES = 5;
+    public const DISCONNECT_GRACE_MINUTES = 2;
 
     protected $fillable = [
         'sector_id',

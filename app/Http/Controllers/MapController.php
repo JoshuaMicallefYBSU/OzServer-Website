@@ -99,7 +99,7 @@ class MapController extends Controller
     }
 
     /**
-     * ATIS broadcasts currently saved in the DB (App\Jobs\PruneStaleAtisJob
+     * ATIS broadcasts currently saved in the DB (App\Jobs\PruneStaleDataJob
      * drops rows once they're 90 minutes stale, so nothing further to
      * filter by age here), placed using the airport's vatSys ASMGCS
      * position as a stand-in for the airport's own coordinates. Only
@@ -154,7 +154,7 @@ class MapController extends Controller
     /**
      * Online controllers matched to a known Sector.callsign, with the
      * frequencies each is actually transmitting/receiving on per the AFV
-     * transceiver feed (App\Jobs\AFVTransieversUpdate) - a controller can
+     * transceiver feed (App\Jobs\RefreshVatsimLiveDataJob) - a controller can
      * be on more than one via AFV multiplexing, so this is a list, not a
      * single frequency. Falls back to the datafeed's own single frequency
      * if AFV data isn't cached yet. Ordered Flow, then Centre (incl. FSS),

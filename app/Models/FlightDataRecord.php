@@ -53,6 +53,22 @@ class FlightDataRecord extends Model
     ];
 
     /**
+     * Clears datalink authority from every flight currently attributed to
+     * this controller - called once they no longer hold any sector, so a
+     * stale controlling_cid/controlling_callsign doesn't keep pointing at
+     * someone who's no longer here to work the flight. The plugin write
+     * check (FlightDataRecordController::upsertMany) already treats a
+     * sectorless authority as free-for-all dynamically, so this isn't load
+     * -bearing for that - it's about keeping the row itself, and anything
+     * reading it directly (the map), from showing stale authority.
+     */
+    public static function releaseAuthorityFor(int $controllingCid): void
+    {
+        static::where('controlling_cid', $controllingCid)
+            ->update(['controlling_cid' => null, 'controlling_callsign' => null]);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

@@ -8,7 +8,7 @@ class AfvTransceiverController extends Controller
 {
     /**
      * Raw passthrough of the cached VATSIM AFV transceiver feed, refreshed
-     * every ~15s by App\Jobs\AFVTransieversUpdate - lets external plugins
+     * every ~15s by App\Jobs\RefreshVatsimLiveDataJob - lets external plugins
      * read it from here instead of hitting VATSIM directly.
      */
     public function index()

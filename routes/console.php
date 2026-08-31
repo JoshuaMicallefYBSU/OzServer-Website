@@ -2,11 +2,8 @@
 
 use Illuminate\Support\Facades\Schedule;
 use App\Jobs\SyncVatsysDatasetJob;
-use App\Jobs\AFVTransieversUpdate;
-use App\Jobs\ReleaseStaleSectorOwnershipsJob;
-use App\Jobs\PruneFlightDataRecordsJob;
-use App\Jobs\PruneStaleAtisJob;
-use App\Jobs\PruneRejectedSectorRequestsJob;
+use App\Jobs\RefreshVatsimLiveDataJob;
+use App\Jobs\PruneStaleDataJob;
 
 // withoutOverlapping()'s expiry (minutes) bounds how long a killed/hung run can
 // wedge the next tick's mutex for - these each finish in ~45s in the normal
@@ -14,8 +11,5 @@ use App\Jobs\PruneRejectedSectorRequestsJob;
 // (the untimed HTTP calls that used to make an indefinite hang possible here
 // have since been given explicit timeouts in VATSIMClient).
 Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
-Schedule::job(new AFVTransieversUpdate)->everyMinute()->withoutOverlapping(3);
-Schedule::job(new ReleaseStaleSectorOwnershipsJob)->everyMinute()->withoutOverlapping(3);
-Schedule::job(new PruneFlightDataRecordsJob)->everyFiveMinutes();
-Schedule::job(new PruneStaleAtisJob)->everyFiveMinutes();
-Schedule::job(new PruneRejectedSectorRequestsJob)->everyFiveMinutes();
+Schedule::job(new RefreshVatsimLiveDataJob)->everyMinute()->withoutOverlapping(3);
+Schedule::job(new PruneStaleDataJob)->everyFiveMinutes();
