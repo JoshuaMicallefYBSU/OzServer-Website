@@ -5,6 +5,7 @@ use App\Jobs\SyncVatsysDatasetJob;
 use App\Jobs\AFVTransieversUpdate;
 use App\Jobs\ReleaseStaleSectorOwnershipsJob;
 use App\Jobs\PruneFlightDataRecordsJob;
+use App\Jobs\PruneStaleAtisJob;
 
 // withoutOverlapping()'s expiry (minutes) bounds how long a killed/hung run can
 // wedge the next tick's mutex for - these each finish in ~45s in the normal
@@ -15,3 +16,4 @@ Schedule::job(new SyncVatsysDatasetJob)->dailyAt('10:15');
 Schedule::job(new AFVTransieversUpdate)->everyMinute()->withoutOverlapping(3);
 Schedule::job(new ReleaseStaleSectorOwnershipsJob)->everyMinute()->withoutOverlapping(3);
 Schedule::job(new PruneFlightDataRecordsJob)->everyFiveMinutes();
+Schedule::job(new PruneStaleAtisJob)->everyFiveMinutes();

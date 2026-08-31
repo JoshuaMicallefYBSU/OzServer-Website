@@ -1,6 +1,7 @@
 <?php
 use App\Http\Controllers\AfvTransceiverController;
 use App\Http\Controllers\APIController;
+use App\Http\Controllers\AtisController;
 use App\Http\Controllers\FlightDataRecordController;
 use App\Http\Controllers\MapController;
 use App\Http\Controllers\SectorOwnershipController;
@@ -11,6 +12,8 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/fdr', [FlightDataRecordController::class, 'update'])->middleware('plugin.token');
     Route::post('/fdr/batch', [FlightDataRecordController::class, 'batchUpdate'])->middleware('plugin.token');
+
+    Route::post('/atis', [AtisController::class, 'update'])->middleware('plugin.token');
 
     Route::get('/afv/transceivers', [AfvTransceiverController::class, 'index']);
 
