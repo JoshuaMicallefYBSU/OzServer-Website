@@ -22,6 +22,9 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/sectors/controlled', [SectorOwnershipController::class, 'controlled'])->middleware('plugin.token');
 
+    // Graceful disconnect only - see SectorOwnershipController::releaseAll.
+    Route::post('/sectors/release-all', [SectorOwnershipController::class, 'releaseAll'])->middleware('plugin.token');
+
     Route::prefix('sectors/{sector:name}')->group(function () {
         Route::post('/claim', [SectorOwnershipController::class, 'claim'])->middleware('plugin.token');
         Route::post('/release', [SectorOwnershipController::class, 'release'])->middleware('plugin.token');

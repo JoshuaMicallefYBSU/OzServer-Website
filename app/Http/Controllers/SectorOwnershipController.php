@@ -65,8 +65,14 @@ class SectorOwnershipController extends Controller
             }
 
             $stillOnline = (new VATSIMClient)->searchCallsign($existing->controller_callsign, true);
+            $ownerOnline = $stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid;
 
-            if ($stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid) {
+            // Offline but still inside their disconnect grace: they dropped out
+            // rather than left (a clean exit releases explicitly - see
+            // releaseAll), so their sectors are held for them and this is a
+            // conflict, not an abandoned sector free for the taking. It becomes
+            // a request, which they can accept if they do not come back.
+            if ($ownerOnline || $existing->withinDisconnectGrace()) {
                 $conflicts[] = [
                     'sector' => $coveredSector->name,
                     'owner' => [
@@ -123,6 +129,41 @@ class SectorOwnershipController extends Controller
             ->delete();
 
         SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
+
+        return response()->noContent();
+    }
+
+    /**
+     * Give up every sector this controller owns, right now.
+     *
+     * The plugin calls this on a *graceful* disconnect only - closing vatSys
+     * while connected, or pressing Disconnect. An ungraceful disconnect (a
+     * crash, a dropped connection) sends nothing at all, and that silence is
+     * exactly what distinguishes the two: ReleaseStaleSectorOwnershipsJob then
+     * holds those sectors for SectorOwnership::DISCONNECT_GRACE_MINUTES so
+     * reconnecting picks up where they left off.
+     */
+    public function releaseAll(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        $sectorIds = SectorOwnership::where('controller_cid', $vatsim['cid'])
+            ->where('controller_callsign', $vatsim['callsign'])
+            ->pluck('sector_id');
+
+        if ($sectorIds->isEmpty()) {
+            return response()->noContent();
+        }
+
+        SectorOwnership::whereIn('sector_id', $sectorIds)
+            ->where('controller_cid', $vatsim['cid'])
+            ->where('controller_callsign', $vatsim['callsign'])
+            ->delete();
+
+        // Nothing left to accept or reject against a sector nobody owns. Also
+        // clears this controller's own outgoing requests: they have gone.
+        SectorOwnershipRequest::whereIn('sector_id', $sectorIds)->delete();
+        SectorOwnershipRequest::where('requesting_cid', $vatsim['cid'])->delete();
 
         return response()->noContent();
     }
