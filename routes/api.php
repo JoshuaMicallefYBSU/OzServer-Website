@@ -22,6 +22,10 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/sectors/controlled', [SectorOwnershipController::class, 'controlled'])->middleware('plugin.token');
 
+    // Everything the plugin's 2s poll needs in one request, instead of the three it used to make
+    // per tick - see SectorOwnershipController::sync.
+    Route::get('/sectors/sync', [SectorOwnershipController::class, 'sync'])->middleware('plugin.token');
+
     // Graceful disconnect only - see SectorOwnershipController::releaseAll.
     Route::post('/sectors/release-all', [SectorOwnershipController::class, 'releaseAll'])->middleware('plugin.token');
 

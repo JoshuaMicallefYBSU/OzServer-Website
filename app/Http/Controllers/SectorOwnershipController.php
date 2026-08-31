@@ -414,22 +414,7 @@ class SectorOwnershipController extends Controller
      */
     public function myRequests(Request $request)
     {
-        $vatsim = $request->attributes->get('vatsim');
-
-        return response()->json([
-            // Includes this controller's own rejected requests: nothing else
-            // ever tells them a request was denied. The plugin reports them and
-            // then acknowledges them, which deletes them.
-            'by_me' => SectorOwnershipRequest::with('sector')
-                ->where('requesting_cid', $vatsim['cid'])
-                ->get(),
-            // Only things still awaiting this controller's decision - a request
-            // they already rejected is not theirs to act on again.
-            'from_me' => SectorOwnershipRequest::with('sector')
-                ->where('target_cid', $vatsim['cid'])
-                ->pending()
-                ->get(),
-        ]);
+        return response()->json($this->requestsPayload($request->attributes->get('vatsim')));
     }
 
     /**
@@ -442,15 +427,86 @@ class SectorOwnershipController extends Controller
      */
     public function mine(Request $request)
     {
+        return response()->json($this->minePayload($request->attributes->get('vatsim')));
+    }
+
+    /**
+     * The three payload shapes below back both the individual endpoints and
+     * sync(). Shared rather than duplicated: the plugin parses one set of
+     * DTOs for both, so a drift between them would be a wire-format bug that
+     * only shows up on whichever route happens to be in use.
+     */
+    private function minePayload(array $vatsim)
+    {
+        return Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', $vatsim['cid']))
+            ->get()
+            ->map(fn (Sector $sector) => [
+                'id' => $sector->id,
+                'name' => $sector->name,
+                'full_name' => $sector->full_name,
+            ]);
+    }
+
+    private function controlledPayload(array $vatsim)
+    {
+        return Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', '!=', $vatsim['cid']))
+            ->with('ownership')
+            ->get()
+            ->map(fn (Sector $sector) => [
+                'name' => $sector->name,
+                'full_name' => $sector->full_name,
+                'type' => $sector->type,
+                'callsign' => $sector->callsign,
+                'frequency' => $sector->frequency,
+                'owner' => [
+                    'cid' => $sector->ownership->controller_cid,
+                    'callsign' => $sector->ownership->controller_callsign,
+                ],
+            ]);
+    }
+
+    private function requestsPayload(array $vatsim): array
+    {
+        return [
+            // Includes this controller's own rejected requests: nothing else
+            // ever tells them a request was denied. The plugin reports them
+            // and then acknowledges them, which deletes them.
+            'by_me' => SectorOwnershipRequest::with('sector')
+                ->where('requesting_cid', $vatsim['cid'])
+                ->get(),
+            // Only things still awaiting this controller's decision - a
+            // request they already rejected is not theirs to act on again.
+            'from_me' => SectorOwnershipRequest::with('sector')
+                ->where('target_cid', $vatsim['cid'])
+                ->pending()
+                ->get(),
+        ];
+    }
+
+    /**
+     * Everything the plugin's poll needs, in one request.
+     *
+     * The Sectors window polls every two seconds while it is open, and used
+     * to issue three separate GETs per tick - /sectors/mine, /sectors/
+     * controlled and /sector-requests - each booting the framework, resolving
+     * the route, and running the plugin-token middleware for itself. With
+     * several controllers connected that is the bulk of the request volume
+     * this API sees, and none of it was work the database found expensive;
+     * it was per-request overhead, three times over, for data that always
+     * gets consumed together.
+     *
+     * The individual routes are deliberately kept: they are a smaller,
+     * clearer contract for anything that only wants one of the three.
+     */
+    public function sync(Request $request)
+    {
         $vatsim = $request->attributes->get('vatsim');
 
-        $sectors = Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', $vatsim['cid']))->get();
-
-        return response()->json($sectors->map(fn (Sector $sector) => [
-            'id' => $sector->id,
-            'name' => $sector->name,
-            'full_name' => $sector->full_name,
-        ]));
+        return response()->json([
+            'mine' => $this->minePayload($vatsim),
+            'controlled' => $this->controlledPayload($vatsim),
+            'requests' => $this->requestsPayload($vatsim),
+        ]);
     }
 
     /**
@@ -463,22 +519,6 @@ class SectorOwnershipController extends Controller
      */
     public function controlled(Request $request)
     {
-        $vatsim = $request->attributes->get('vatsim');
-
-        $sectors = Sector::whereHas('ownership', fn ($query) => $query->where('controller_cid', '!=', $vatsim['cid']))
-            ->with('ownership')
-            ->get();
-
-        return response()->json($sectors->map(fn (Sector $sector) => [
-            'name' => $sector->name,
-            'full_name' => $sector->full_name,
-            'type' => $sector->type,
-            'callsign' => $sector->callsign,
-            'frequency' => $sector->frequency,
-            'owner' => [
-                'cid' => $sector->ownership->controller_cid,
-                'callsign' => $sector->ownership->controller_callsign,
-            ],
-        ]));
+        return response()->json($this->controlledPayload($request->attributes->get('vatsim')));
     }
 }
