@@ -43,13 +43,24 @@ class ReleaseStaleSectorOwnershipsJob
 
     private function releaseStale(): void
     {
+        $vatsim = new VATSIMClient;
+
+        // Can't confirm anyone's actually offline right now - skip this pass
+        // rather than risk treating a transient VATSIM outage as every
+        // controller network-wide having disconnected at once.
+        $data = $vatsim->getCurrentData();
+
+        if ($data === null || ! isset($data->controllers)) {
+            return;
+        }
+
         $owners = SectorOwnership::query()
             ->select('controller_cid', 'controller_callsign')
             ->distinct()
             ->get();
 
         foreach ($owners as $owner) {
-            $stillOnline = (new VATSIMClient)->searchCallsign($owner->controller_callsign, true);
+            $stillOnline = $vatsim->searchCallsign($owner->controller_callsign, true);
 
             if ($stillOnline !== null && (int) $stillOnline->cid === $owner->controller_cid) {
                 continue;
