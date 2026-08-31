@@ -48,6 +48,22 @@ class SectorOwnershipController extends Controller
                 continue;
             }
 
+            // A position's own controller always inherits it. Logging in under
+            // the sector's callsign is the strongest claim there is - stronger
+            // than whoever extended into it while nobody was on it - so this is
+            // a takeover, not a conflict, and never turns into a request. The
+            // previous holder finds out the way they find out about any other
+            // ownership change: their next /sectors/mine refresh drops it,
+            // which pulls it back out of MMI and drops its VSCS line to Idle.
+            //
+            // Matched on callsign, because that is exactly what "logged in on
+            // the position" means - cid identifies the person, not the position
+            // they are currently occupying.
+            if ($coveredSector->callsign !== null
+                && strcasecmp((string) $coveredSector->callsign, (string) $vatsim['callsign']) === 0) {
+                continue;
+            }
+
             $stillOnline = (new VATSIMClient)->searchCallsign($existing->controller_callsign, true);
 
             if ($stillOnline !== null && (int) $stillOnline->cid === $existing->controller_cid) {
@@ -106,7 +122,7 @@ class SectorOwnershipController extends Controller
             ->where('controller_cid', $vatsim['cid'])
             ->delete();
 
-        SectorOwnershipRequest::where('sector_id', $sector->id)->delete();
+        SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
 
         return response()->noContent();
     }
@@ -134,11 +150,21 @@ class SectorOwnershipController extends Controller
 
         $alreadyRequested = SectorOwnershipRequest::where('sector_id', $sector->id)
             ->where('requesting_cid', $vatsim['cid'])
+            ->pending()
             ->exists();
 
         if ($alreadyRequested) {
             return response()->json(['message' => 'You already have a pending request for this sector.'], 409);
         }
+
+        // Asking again is allowed, but unique(sector_id, requesting_cid) means
+        // an earlier rejection they never collected would block the insert -
+        // and permanently lock them out of that sector if they were offline
+        // when it was rejected. Making the new request supersedes it.
+        SectorOwnershipRequest::where('sector_id', $sector->id)
+            ->where('requesting_cid', $vatsim['cid'])
+            ->whereNotNull('rejected_at')
+            ->delete();
 
         $sectorOwnershipRequest = SectorOwnershipRequest::create([
             'sector_id' => $sector->id,
@@ -221,7 +247,9 @@ class SectorOwnershipController extends Controller
             && $currentOwnership !== null
             && $currentOwnership->controller_cid === $cid;
 
-        if (! $isCurrentTarget) {
+        // Already decided - rejecting then accepting the same row would hand
+        // over a sector on a request the owner had explicitly refused.
+        if (! $isCurrentTarget || $sectorOwnershipRequest->rejected_at !== null) {
             return false;
         }
 
@@ -234,8 +262,10 @@ class SectorOwnershipController extends Controller
                 'controller_callsign' => $sectorOwnershipRequest->requesting_callsign,
             ]);
 
-        // Any other pending requests for this sector are moot now.
-        SectorOwnershipRequest::where('sector_id', $sector->id)->delete();
+        // Any other pending requests for this sector are moot now. Rejected
+        // ones are left alone - they are already decided and are only waiting
+        // to be collected by the controller they were rejected on.
+        SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
 
         return true;
     }
@@ -249,6 +279,35 @@ class SectorOwnershipController extends Controller
 
         if ($sectorOwnershipRequest->target_cid !== $vatsim['cid']) {
             return response()->json(['message' => "Only the sector's current owner may reject this request."], 403);
+        }
+
+        // Flagged rather than deleted, so the requesting controller's next
+        // myRequests() poll can tell them they were denied. Deleting it here
+        // made a denial indistinguishable from an accept, a cancel or a stale
+        // prune - the row just vanished from their list either way. They
+        // acknowledge it (below), which is what finally removes it.
+        $sectorOwnershipRequest->update(['rejected_at' => now()]);
+
+        return response()->noContent();
+    }
+
+    /**
+     * Acknowledge a rejection of my own request - the requesting plugin calls
+     * this once it has told the controller they were denied, which is what
+     * finally removes the row. Kept separate from cancel() because only the
+     * requester can be the one who has actually seen it, and because deleting
+     * it is the whole point rather than a side effect.
+     */
+    public function acknowledgeRejection(Request $request, SectorOwnershipRequest $sectorOwnershipRequest)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        if ($sectorOwnershipRequest->requesting_cid !== $vatsim['cid']) {
+            return response()->json(['message' => 'Only the requester may acknowledge this rejection.'], 403);
+        }
+
+        if ($sectorOwnershipRequest->rejected_at === null) {
+            return response()->json(['message' => 'That request has not been rejected.'], 400);
         }
 
         $sectorOwnershipRequest->delete();
@@ -281,8 +340,18 @@ class SectorOwnershipController extends Controller
         $vatsim = $request->attributes->get('vatsim');
 
         return response()->json([
-            'by_me' => SectorOwnershipRequest::with('sector')->where('requesting_cid', $vatsim['cid'])->get(),
-            'from_me' => SectorOwnershipRequest::with('sector')->where('target_cid', $vatsim['cid'])->get(),
+            // Includes this controller's own rejected requests: nothing else
+            // ever tells them a request was denied. The plugin reports them and
+            // then acknowledges them, which deletes them.
+            'by_me' => SectorOwnershipRequest::with('sector')
+                ->where('requesting_cid', $vatsim['cid'])
+                ->get(),
+            // Only things still awaiting this controller's decision - a request
+            // they already rejected is not theirs to act on again.
+            'from_me' => SectorOwnershipRequest::with('sector')
+                ->where('target_cid', $vatsim['cid'])
+                ->pending()
+                ->get(),
         ]);
     }
 

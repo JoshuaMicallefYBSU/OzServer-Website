@@ -13,6 +13,7 @@ class SectorOwnershipRequest extends Model
         'requesting_callsign',
         'target_cid',
         'target_callsign',
+        'rejected_at',
     ];
 
     protected function casts(): array
@@ -20,7 +21,20 @@ class SectorOwnershipRequest extends Model
         return [
             'requesting_cid' => 'integer',
             'target_cid' => 'integer',
+            'rejected_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Still awaiting a decision. Everything that treats a request as
+     * actionable - the owner's incoming list, accept, the "any other pending
+     * requests are moot now" cleanup - means this rather than "the row
+     * exists", now that a rejected row outlives its own decision so the
+     * requester can be told about it.
+     */
+    public function scopePending($query)
+    {
+        return $query->whereNull('rejected_at');
     }
 
     public function sector(): BelongsTo

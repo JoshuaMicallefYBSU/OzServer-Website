@@ -35,6 +35,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/accept', [SectorOwnershipController::class, 'accept'])->middleware('plugin.token');
         Route::post('/reject', [SectorOwnershipController::class, 'reject'])->middleware('plugin.token');
         Route::post('/cancel', [SectorOwnershipController::class, 'cancel'])->middleware('plugin.token');
+        Route::post('/acknowledge-rejection', [SectorOwnershipController::class, 'acknowledgeRejection'])->middleware('plugin.token');
     });
 
     Route::prefix('map')->group(function () {
