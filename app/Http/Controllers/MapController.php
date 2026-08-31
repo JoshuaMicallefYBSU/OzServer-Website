@@ -92,7 +92,7 @@ class MapController extends Controller
                 'dep_airport', 'des_airport', 'route', 'sid_star_string', 'runway_string', 'departure_runway',
                 'flight_rules', 'rfl', 'cfl_lower', 'cfl_upper', 'assigned_ssr_code',
                 'atd', 'etd', 'eet_minutes', 'tas', 'state', 'remarks',
-                'controlling_cid', 'controlling_callsign', 'last_seen_at',
+                'controlling_cid', 'controlling_callsign', 'current_sector', 'last_seen_at',
             ]);
 
         return response()->json($flights);

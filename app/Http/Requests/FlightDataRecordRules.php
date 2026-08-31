@@ -27,6 +27,11 @@ class FlightDataRecordRules
             'controlling_cid' => ['nullable', 'integer'],
             'controlling_callsign' => ['nullable', 'string', 'max:20'],
 
+            // The geographic sector the aircraft is physically inside of right now - a different
+            // question from controlling_cid/controlling_callsign above (who owns the tag). May name
+            // a sector this backend doesn't know about (no FK), same as controlling_callsign.
+            'current_sector' => ['nullable', 'string', 'max:20'],
+
             'state' => ['nullable', 'string', 'max:50'],
             'flight_rules' => ['nullable', 'string', 'max:1'],
             'aircraft_type' => ['nullable', 'string', 'max:10'],

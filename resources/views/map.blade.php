@@ -192,6 +192,7 @@
                     flight.flight_rules ? `Rules: ${flight.flight_rules}` : null,
                     flight.state ? `State: ${flight.state}` : null,
                     flight.controlling_callsign ? `Controlling: ${flight.controlling_callsign}` : null,
+                    flight.current_sector ? `Sector: ${flight.current_sector}` : null,
                 ].filter(Boolean);
 
                 const routeLine = flight.route ? `<p class="oz-route">${flight.route}</p>` : '';

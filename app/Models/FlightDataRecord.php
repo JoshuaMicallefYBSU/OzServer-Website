@@ -41,6 +41,7 @@ class FlightDataRecord extends Model
         'remarks',
         'controlling_cid',
         'controlling_callsign',
+        'current_sector',
         'last_seen_at',
         'lat',
         'lon',
