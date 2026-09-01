@@ -35,6 +35,21 @@ class FlightDataRecordController extends Controller
     }
 
     /**
+     * Every FDR row OzServer currently holds, for the plugin's own pull
+     * side (FdrActivationSync) - the counterpart to update()/batchUpdate()
+     * pushing data up. No staleness filter is needed here: PruneStaleDataJob
+     * already deletes any row not touched in FDR_RETAIN_MINUTES, so every
+     * row returned is already live. Deliberately dumb - this endpoint
+     * doesn't know or care what vatSys's own FDRStates ordering means
+     * (e.g. which values count as "activated"); that judgement is made
+     * client-side, in FdrActivationSync.
+     */
+    public function sync()
+    {
+        return response()->json(FlightDataRecord::all());
+    }
+
+    /**
      * Same as update(), but for every flight the plugin currently knows
      * about in one request rather than one HTTP call per aircraft. Each
      * flight succeeds or is blocked independently (see upsertMany()) - one
