@@ -275,7 +275,10 @@ class SectorOwnershipController extends Controller
             return response()->json(['message' => "Only the sector's current owner may accept this request."], 403);
         }
 
-        return response()->json(['message' => 'Ownership transferred.']);
+        return response()->json([
+            'message' => 'Ownership transferred.',
+            'sync' => $this->syncPayload($vatsim),
+        ]);
     }
 
     /**
@@ -314,7 +317,14 @@ class SectorOwnershipController extends Controller
             ];
         });
 
-        return response()->json(['results' => $results]);
+        // The resulting state travels back with the result of the action that caused it. The plugin
+        // used to POST and then immediately GET /sectors/sync to find out what had changed, so every
+        // accept cost two sequential round trips - and the second could queue behind an in-flight
+        // poll before it even started. Returning it here makes the whole thing one round trip.
+        return response()->json([
+            'results' => $results,
+            'sync' => $this->syncPayload($vatsim),
+        ]);
     }
 
     /**
@@ -384,7 +394,7 @@ class SectorOwnershipController extends Controller
         // acknowledge it (below), which is what finally removes it.
         $sectorOwnershipRequest->update(['rejected_at' => now()]);
 
-        return response()->noContent();
+        return response()->json(['sync' => $this->syncPayload($vatsim)]);
     }
 
     /**
@@ -424,7 +434,7 @@ class SectorOwnershipController extends Controller
 
         $sectorOwnershipRequest->delete();
 
-        return response()->noContent();
+        return response()->json(['sync' => $this->syncPayload($vatsim)]);
     }
 
     /**
@@ -503,6 +513,153 @@ class SectorOwnershipController extends Controller
     }
 
     /**
+     * Commits one Apply: releases, then claims, then requests, in a single
+     * call, answering with the resulting state.
+     *
+     * The plugin used to send one POST per sector and then a GET to find out
+     * the result, so applying three staged sectors was four sequential round
+     * trips - each one paying full latency before the next could start, with
+     * the lists frozen until the last returned. Ordering matters and is kept:
+     * releases first, because a sector freed by one of them may be exactly
+     * what a later claim or request is for.
+     *
+     * Each leg reuses the same single-sector logic, so behaviour is identical
+     * to making the calls individually - including a claim that collides
+     * leaving the contested sub-sectors with their owner rather than
+     * requesting them behind the controller's back.
+     */
+    public function commit(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        $names = fn (string $key) => array_values(array_filter(
+            (array) $request->input($key, []),
+            'is_string'
+        ));
+
+        $result = ['claimed' => [], 'released' => [], 'requested' => [], 'skipped' => [], 'failed' => []];
+
+        foreach ($names('release') as $name) {
+            $sector = Sector::where('name', $name)->first();
+
+            if ($sector === null || $sector->ownership === null
+                || $sector->ownership->controller_cid !== $vatsim['cid']) {
+                $result['failed'][] = $name;
+
+                continue;
+            }
+
+            SectorOwnership::whereIn('sector_id', $sector->coveredSectors()->pluck('id'))
+                ->where('controller_cid', $vatsim['cid'])
+                ->delete();
+
+            SectorOwnershipRequest::where('sector_id', $sector->id)->pending()->delete();
+            $result['released'][] = $name;
+        }
+
+        foreach ($names('claim') as $name) {
+            $sector = Sector::where('name', $name)->first();
+
+            if ($sector === null) {
+                $result['failed'][] = $name;
+
+                continue;
+            }
+
+            [$claimed, $skipped] = $this->claimCovered($vatsim, $sector);
+            $result['claimed'] = array_merge($result['claimed'], $claimed);
+            $result['skipped'] = array_merge($result['skipped'], $skipped);
+        }
+
+        foreach ($names('request') as $name) {
+            $sector = Sector::where('name', $name)->first();
+            $existing = $sector?->ownership;
+
+            if ($sector === null || $existing === null || $existing->controller_cid === $vatsim['cid']) {
+                $result['failed'][] = $name;
+
+                continue;
+            }
+
+            // Asking again is allowed; an uncollected rejection would otherwise
+            // block the insert on unique(sector_id, requesting_cid).
+            SectorOwnershipRequest::where('sector_id', $sector->id)
+                ->where('requesting_cid', $vatsim['cid'])
+                ->whereNotNull('rejected_at')
+                ->delete();
+
+            $alreadyPending = SectorOwnershipRequest::where('sector_id', $sector->id)
+                ->where('requesting_cid', $vatsim['cid'])
+                ->pending()
+                ->exists();
+
+            if (! $alreadyPending) {
+                SectorOwnershipRequest::create([
+                    'sector_id' => $sector->id,
+                    'requesting_cid' => $vatsim['cid'],
+                    'requesting_callsign' => $vatsim['callsign'],
+                    'target_cid' => $existing->controller_cid,
+                    'target_callsign' => $existing->controller_callsign,
+                ]);
+            }
+
+            $result['requested'][] = $name;
+        }
+
+        return response()->json([
+            'result' => $result,
+            'sync' => $this->syncPayload($vatsim),
+        ]);
+    }
+
+    /**
+     * Claims what this controller is entitled to out of a sector's covered
+     * group, returning [claimed names, skipped names]. Shared by commit() and
+     * claim() so the two can never disagree about what a claim takes.
+     */
+    private function claimCovered(array $vatsim, Sector $sector): array
+    {
+        $vatsimClient = new VATSIMClient;
+        $skipped = [];
+
+        $takeable = $sector->coveredSectors()->filter(function (Sector $coveredSector) use ($vatsim, $vatsimClient, &$skipped) {
+            $existing = $coveredSector->ownership;
+
+            if ($existing === null || $existing->controller_cid === $vatsim['cid']) {
+                return true;
+            }
+
+            // A position's own controller always inherits it - see claim().
+            if ($coveredSector->callsign !== null
+                && strcasecmp((string) $coveredSector->callsign, (string) $vatsim['callsign']) === 0) {
+                return true;
+            }
+
+            $held = $vatsimClient->isControllerOnline($existing->controller_callsign, $existing->controller_cid)
+                || $existing->withinDisconnectGrace();
+
+            if ($held) {
+                $skipped[] = $coveredSector->name;
+            }
+
+            return ! $held;
+        });
+
+        SectorOwnership::whereIn('sector_id', $takeable->pluck('id'))->delete();
+
+        foreach ($takeable as $coveredSector) {
+            SectorOwnership::create([
+                'sector_id' => $coveredSector->id,
+                'controller_cid' => $vatsim['cid'],
+                'controller_callsign' => $vatsim['callsign'],
+                'last_seen_online_at' => now(),
+            ]);
+        }
+
+        return [$takeable->pluck('name')->all(), $skipped];
+    }
+
+    /**
      * Everything the plugin's poll needs, in one request.
      *
      * The Sectors window polls every two seconds while it is open, and used
@@ -519,13 +676,23 @@ class SectorOwnershipController extends Controller
      */
     public function sync(Request $request)
     {
-        $vatsim = $request->attributes->get('vatsim');
+        return response()->json($this->syncPayload($request->attributes->get('vatsim')));
+    }
 
-        return response()->json([
+    /**
+     * The same shape GET /sectors/sync returns, also attached to the
+     * response of every action that changes ownership or the request set -
+     * accept, acceptBatch, reject, cancel. The caller of an action already
+     * knows something changed; making it ask again is a wasted round trip on
+     * exactly the path where latency is most visible.
+     */
+    private function syncPayload(array $vatsim): array
+    {
+        return [
             'mine' => $this->minePayload($vatsim),
             'controlled' => $this->controlledPayload($vatsim),
             'requests' => $this->requestsPayload($vatsim),
-        ]);
+        ];
     }
 
     /**

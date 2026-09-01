@@ -27,6 +27,10 @@ Route::prefix('v1')->group(function () {
     // per tick - see SectorOwnershipController::sync.
     Route::get('/sectors/sync', [SectorOwnershipController::class, 'sync'])->middleware('plugin.token');
 
+    // One Apply - releases, claims and requests together - answering with the resulting state, so
+    // committing several staged sectors is one round trip rather than one per sector plus a GET.
+    Route::post('/sectors/commit', [SectorOwnershipController::class, 'commit'])->middleware('plugin.token');
+
     // Graceful disconnect only - see SectorOwnershipController::releaseAll.
     Route::post('/sectors/release-all', [SectorOwnershipController::class, 'releaseAll'])->middleware('plugin.token');
 
