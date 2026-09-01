@@ -370,9 +370,57 @@
                 refreshControllers();
             }
 
+            // Coalesces a burst of pushes into a single refresh. The API signals every FDR write,
+            // and each connected controller writes every few seconds, so without this the map
+            // would redraw continuously on a busy evening. One redraw per burst is
+            // indistinguishable to the eye and bounds the work.
+            function coalesce(fn, waitMs) {
+                let timer = null;
+                return () => {
+                    if (timer !== null) {
+                        return;
+                    }
+                    timer = setTimeout(() => {
+                        timer = null;
+                        fn();
+                    }, waitMs);
+                };
+            }
+
+            // The API pushes a bare signal - "something under sectors/fdr/atis changed" - and the
+            // page re-reads the same endpoint it already polls. Nothing sensitive crosses the
+            // stream, which is why it needs no credentials: EventSource cannot send headers.
+            //
+            // The interval poll below is deliberately kept. If the stream is unavailable - an old
+            // browser, a proxy that eats long-lived responses, the API restarting - the map falls
+            // back to exactly its previous behaviour instead of quietly going stale.
+            function subscribeToEvents() {
+                if (!window.EventSource) {
+                    return;
+                }
+
+                const source = new EventSource(`${apiBaseUrl}/api/v1/events`);
+                const onSectors = coalesce(() => {
+                    refreshSectors();
+                    refreshControllers();
+                }, 250);
+                const onAircraft = coalesce(refreshAircraft, 1000);
+                const onAtis = coalesce(refreshAtis, 250);
+
+                source.addEventListener('sectors', onSectors);
+                source.addEventListener('fdr', onAircraft);
+                source.addEventListener('atis', onAtis);
+
+                // EventSource reconnects on its own, so a transient error is not worth acting on -
+                // and must not be treated as fatal, or one blip would leave the page on the poll
+                // alone for the rest of the session.
+                source.onerror = () => {};
+            }
+
             map.on('load', () => {
                 refreshAll();
                 setInterval(refreshAll, POLL_INTERVAL_MS);
+                subscribeToEvents();
             });
         </script>
     </body>
