@@ -65,6 +65,7 @@
     <body>
         <div id="map"></div>
         <script>
+            const apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
             const POLL_INTERVAL_MS = 15000;
 
             mapboxgl.accessToken = document.querySelector('meta[name="mapbox-token"]').content;
@@ -231,7 +232,7 @@
             }
 
             async function refreshSectors() {
-                const response = await fetch('/api/v1/map/sectors', { headers: { Accept: 'application/json' } });
+                const response = await fetch(`${apiBaseUrl}/api/v1/map/sectors`, { headers: { Accept: 'application/json' } });
                 const sectors = await response.json();
 
                 const source = map.getSource('sectors');
@@ -280,7 +281,7 @@
             }
 
             async function refreshAircraft() {
-                const response = await fetch('/api/v1/map/aircraft', { headers: { Accept: 'application/json' } });
+                const response = await fetch(`${apiBaseUrl}/api/v1/map/aircraft`, { headers: { Accept: 'application/json' } });
                 const flights = await response.json();
 
                 const seen = new Set();
@@ -315,7 +316,7 @@
             }
 
             async function refreshAtis() {
-                const response = await fetch('/api/v1/map/atis', { headers: { Accept: 'application/json' } });
+                const response = await fetch(`${apiBaseUrl}/api/v1/map/atis`, { headers: { Accept: 'application/json' } });
                 const broadcasts = await response.json();
 
                 const seen = new Set();
@@ -349,7 +350,7 @@
             }
 
             async function refreshControllers() {
-                const response = await fetch('/api/v1/map/controllers', { headers: { Accept: 'application/json' } });
+                const response = await fetch(`${apiBaseUrl}/api/v1/map/controllers`, { headers: { Accept: 'application/json' } });
                 const controllers = await response.json();
 
                 controllersList.innerHTML = controllers.length

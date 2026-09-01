@@ -43,4 +43,10 @@ return [
         'token' => env('PLUGIN_TOKEN'),
     ],
 
+    // The operational API is deployed independently from this website. Keeping the origin in
+    // configuration lets staging use its own API without rebuilding the frontend assets.
+    'ozserver_api' => [
+        'url' => env('OZSERVER_API_URL', 'https://api.ozserver.org'),
+    ],
+
 ];
