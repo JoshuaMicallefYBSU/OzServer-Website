@@ -34,6 +34,10 @@ Route::prefix('v1')->group(function () {
     // Graceful disconnect only - see SectorOwnershipController::releaseAll.
     Route::post('/sectors/release-all', [SectorOwnershipController::class, 'releaseAll'])->middleware('plugin.token');
 
+    // Called on connect: puts a controller who reconnects on the same position within the resume
+    // window back on the sectors and tags they left - see SectorOwnershipController::resume.
+    Route::post('/sectors/resume', [SectorOwnershipController::class, 'resume'])->middleware('plugin.token');
+
     Route::prefix('sectors/{sector:name}')->group(function () {
         Route::post('/claim', [SectorOwnershipController::class, 'claim'])->middleware('plugin.token');
         Route::post('/release', [SectorOwnershipController::class, 'release'])->middleware('plugin.token');

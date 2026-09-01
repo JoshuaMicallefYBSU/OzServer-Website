@@ -6,6 +6,7 @@ use App\Models\FlightDataRecord;
 use App\Models\Sector;
 use App\Models\SectorOwnership;
 use App\Models\SectorOwnershipRequest;
+use App\Models\SectorResumeSnapshot;
 use App\Services\VATSIMClient;
 use Illuminate\Http\Request;
 
@@ -191,6 +192,20 @@ class SectorOwnershipController extends Controller
             ->where('controller_callsign', $vatsim['callsign'])
             ->pluck('sector_id');
 
+        // Recorded before the rows go, so reconnecting on the same position
+        // within the resume window puts the controller back where they were -
+        // see resume(). The sectors are still released either way: nobody
+        // should be blocked from a position somebody deliberately left.
+        SectorResumeSnapshot::updateOrCreate(
+            ['controller_cid' => $vatsim['cid'], 'controller_callsign' => $vatsim['callsign']],
+            [
+                'sectors' => Sector::whereIn('id', $sectorIds)->pluck('name')->all(),
+                'flights' => FlightDataRecord::where('controlling_cid', $vatsim['cid'])
+                    ->pluck('callsign')
+                    ->all(),
+            ]
+        );
+
         if ($sectorIds->isEmpty()) {
             return response()->noContent();
         }
@@ -210,6 +225,92 @@ class SectorOwnershipController extends Controller
         FlightDataRecord::releaseAuthorityFor($vatsim['cid']);
 
         return response()->noContent();
+    }
+
+    /**
+     * Puts a reconnecting controller back where they left off.
+     *
+     * Called by the plugin on connect. If this cid last disconnected from
+     * this same callsign inside the resume window, every sector they held
+     * that is *still free* is re-claimed, and datalink authority over the
+     * flights they were working is re-asserted for any that are still free -
+     * so the tags come back with the sectors and they carry on as if nothing
+     * happened.
+     *
+     * Deliberately only takes what nobody else has since taken. A sector or a
+     * flight somebody picked up in the interim stays theirs; resuming must
+     * never pull something out from under a controller who is actively
+     * working it. Anything not recovered simply isn't, and the controller
+     * sees that immediately in their lists.
+     *
+     * cid *and* callsign both have to match: coming back on a different
+     * position is a different session and inherits nothing.
+     */
+    public function resume(Request $request)
+    {
+        $vatsim = $request->attributes->get('vatsim');
+
+        $snapshot = SectorResumeSnapshot::where('controller_cid', $vatsim['cid'])
+            ->where('controller_callsign', $vatsim['callsign'])
+            ->first();
+
+        if ($snapshot === null) {
+            return response()->json(['resumed' => [], 'sync' => $this->syncPayload($vatsim)]);
+        }
+
+        // Consumed either way - a snapshot is good for one return, and leaving
+        // a stale one behind would let a much later reconnect inherit it.
+        $resumable = $snapshot->isResumable();
+        $sectors = (array) $snapshot->sectors;
+        $flights = (array) $snapshot->flights;
+        $snapshot->delete();
+
+        if (! $resumable) {
+            return response()->json(['resumed' => [], 'sync' => $this->syncPayload($vatsim)]);
+        }
+
+        $resumed = [];
+
+        foreach ($sectors as $name) {
+            $sector = Sector::where('name', $name)->first();
+
+            // Still free only. withinDisconnectGrace covers the case where
+            // somebody else dropped out holding it and is themselves entitled
+            // to come back to it.
+            if ($sector === null
+                || ($sector->ownership !== null && $sector->ownership->withinDisconnectGrace())) {
+                continue;
+            }
+
+            SectorOwnership::where('sector_id', $sector->id)->delete();
+            SectorOwnership::create([
+                'sector_id' => $sector->id,
+                'controller_cid' => $vatsim['cid'],
+                'controller_callsign' => $vatsim['callsign'],
+                'last_seen_online_at' => now(),
+            ]);
+
+            $resumed[] = $name;
+        }
+
+        // Tags follow the sectors. Only flights whose authority is still this
+        // controller's or nobody's - one picked up by someone else in the
+        // meantime is theirs now.
+        if ($flights !== []) {
+            FlightDataRecord::whereIn('callsign', $flights)
+                ->where(fn ($query) => $query
+                    ->whereNull('controlling_cid')
+                    ->orWhere('controlling_cid', $vatsim['cid']))
+                ->update([
+                    'controlling_cid' => $vatsim['cid'],
+                    'controlling_callsign' => $vatsim['callsign'],
+                ]);
+        }
+
+        return response()->json([
+            'resumed' => $resumed,
+            'sync' => $this->syncPayload($vatsim),
+        ]);
     }
 
     /**
