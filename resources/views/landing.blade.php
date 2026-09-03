@@ -95,7 +95,7 @@
             <section class="max-w-2xl">
                 <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-sm font-medium text-cyan-300">
                     <span class="h-1.5 w-1.5 rounded-full bg-cyan-300"></span>
-                    Concept stage &middot; built for the VATPAC Division
+                    In active development &middot; built for the VATPAC Division
                 </p>
                 <h1 class="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
                     One server, every VATPAC controller in sync.
@@ -137,6 +137,70 @@
                     </li>
                 </ol>
             </section>
+
+            <section id="live-network" class="mt-20">
+                <h2 class="text-2xl font-semibold text-white">Live network</h2>
+                <p class="mt-2 text-sm leading-6 text-slate-300">Pulled straight from the API that backs the <a href="/ops" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">live map</a>.</p>
+                <div class="mt-6 grid gap-6 sm:grid-cols-2">
+                    <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <p class="text-sm text-slate-400">Controllers connected</p>
+                        <p class="mt-2 text-4xl font-semibold tabular-nums text-white" id="stat-controllers">&mdash;</p>
+                    </div>
+                    <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <p class="text-sm text-slate-400">Aircraft tags tracked</p>
+                        <p class="mt-2 text-4xl font-semibold tabular-nums text-white" id="stat-aircraft">&mdash;</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="fun-facts" class="mt-20">
+                <h2 class="text-2xl font-semibold text-white">A few things OzServer quietly handles</h2>
+                <p class="mt-2 text-sm leading-6 text-slate-300">Small details controllers benefit from without ever having to think about them.</p>
+                <div class="mt-6 grid gap-6 sm:grid-cols-2">
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">ATIS carries over between controllers</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">An airport's ATIS is remembered centrally, not by whoever last typed it. When one controller hands off to another — or logs back in — the current broadcast is just there, instead of needing to be rebuilt from scratch.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">A dropped connection doesn't cost you your sectors</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">Crash, or a rough network patch? Reconnecting to the same position within a short grace window hands your sectors and aircraft tags straight back, exactly as you left them.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Logging in on a position always wins</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">If someone's covering your airspace while you're away, logging in under your own position's callsign takes it straight back — no request, no waiting for approval.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Splitting airspace re-sorts everything for you</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">Combine or split adjacent sectors and every aircraft inside them is reassigned to the right controller automatically — nobody has to hand tags across one by one.</p>
+                    </article>
+                </div>
+            </section>
+
+            <section id="for-developers" class="mt-20">
+                <h2 class="text-2xl font-semibold text-white">For developers</h2>
+                <p class="mt-2 text-sm leading-6 text-slate-300">
+                    OzServer is open source — browse the code or follow progress on
+                    <a href="https://github.com/JoshuaMicallefYBSU/OzServer-Website" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">GitHub</a>.
+                </p>
+                <div class="mt-6 grid gap-6 sm:grid-cols-2">
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Backend</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">A Laravel application. The vatSys plugin talks to it over a token-authenticated REST API — polling for sector ownership state and pushing flight data record (tag) updates as controllers work traffic.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Real-time map</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">The <a href="/ops" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">/ops map</a> streams sector, aircraft and ATIS changes over Server-Sent Events, falling back to a 15-second poll for anything that can't hold a long-lived connection.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Identity</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">Controllers are identified by VATSIM CID. Sector ownership and tag authority are both tied to that identity rather than to a client session.</p>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        <h3 class="text-lg font-semibold text-white">Client plugin</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">The vatSys client plugin lives in a separate repository and isn't public yet — this repo covers the server and the website you're on.</p>
+                    </article>
+                </div>
+            </section>
         </main>
 
         <footer class="border-t border-white/10">
@@ -145,6 +209,27 @@
             </div>
         </footer>
         <script>
+            (function () {
+                var apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
+                var controllersEl = document.getElementById('stat-controllers');
+                var aircraftEl = document.getElementById('stat-aircraft');
+
+                function loadStats() {
+                    fetch(apiBaseUrl + '/api/v1/map/controllers', { headers: { Accept: 'application/json' } })
+                        .then(function (response) { return response.json(); })
+                        .then(function (controllers) { controllersEl.textContent = controllers.length; })
+                        .catch(function () { controllersEl.textContent = '?'; });
+
+                    fetch(apiBaseUrl + '/api/v1/map/aircraft', { headers: { Accept: 'application/json' } })
+                        .then(function (response) { return response.json(); })
+                        .then(function (aircraft) { aircraftEl.textContent = aircraft.length; })
+                        .catch(function () { aircraftEl.textContent = '?'; });
+                }
+
+                loadStats();
+                setInterval(loadStats, 15000);
+            })();
+
             (function () {
                 var field = document.getElementById('tag-field');
                 if (!field || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
