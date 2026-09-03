@@ -14,17 +14,46 @@
                 overflow: hidden;
                 pointer-events: none;
             }
+            .oz-map {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+            .oz-sector-static {
+                fill: rgba(34, 211, 238, 0.03);
+                stroke: rgba(148, 163, 184, 0.35);
+                stroke-width: 0.15;
+            }
+            .oz-sector-active {
+                fill: rgba(34, 211, 238, 0.4);
+                stroke: #22d3ee;
+                stroke-width: 0.3;
+                opacity: 0.15;
+                animation: sector-activate 14s ease-in-out infinite;
+            }
+            .oz-sector-label {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 2.6px;
+                fill: #67e8f9;
+                text-anchor: middle;
+                dominant-baseline: middle;
+                opacity: 0.15;
+                animation: sector-activate 14s ease-in-out infinite;
+            }
+            @keyframes sector-activate {
+                0%, 100% { opacity: 0.15; }
+                15% { opacity: 1; }
+                50% { opacity: 1; }
+                65% { opacity: 0.15; }
+            }
             .vatsys-tag {
                 position: absolute;
-                left: -240px;
                 display: flex;
                 align-items: center;
                 gap: 6px;
-                opacity: 0.4;
-                animation-name: tag-drift;
-                animation-timing-function: linear;
-                animation-iteration-count: infinite;
-                will-change: transform;
+                will-change: left, top, opacity;
             }
             .tag-target {
                 position: relative;
@@ -56,30 +85,40 @@
                 font-size: 11px;
                 line-height: 1.3;
                 white-space: nowrap;
+                background: rgba(30, 41, 59, 0.55);
+                border-radius: 3px;
+                padding: 1px 4px;
             }
-            .tag-prefix {
-                opacity: 0.75;
-            }
-            .tag-line2,
-            .tag-line3 {
+            .tag-line2 {
                 opacity: 0.85;
             }
             .vatsys-tag { color: #a5f3dc; }
             .vatsys-tag.tag--blue { color: #93c5fd; }
-            @keyframes tag-drift {
-                0% { transform: translate(0, 0); }
-                25% { transform: translate(27vw, -10px); }
-                50% { transform: translate(54vw, 8px); }
-                75% { transform: translate(81vw, -6px); }
-                100% { transform: translate(108vw, 0); }
-            }
             @media (prefers-reduced-motion: reduce) {
-                .vatsys-tag { animation: none; opacity: 0.15; }
+                .oz-sector-active, .oz-sector-label { animation: none; opacity: 0.5; }
             }
         </style>
     </head>
     <body class="min-h-screen bg-slate-950 text-slate-100">
-        <div class="tag-field" id="tag-field"></div>
+        <div class="tag-field" id="tag-field">
+            <svg class="oz-map" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                @foreach ($mapSectors as $sector)
+                    <path
+                        class="{{ $sector['activated'] ? 'oz-sector-active' : 'oz-sector-static' }}"
+                        d="{{ $sector['path'] }}"
+                        @if ($sector['activated']) style="animation-delay: {{ $sector['activated_index'] * -2.8 }}s" @endif
+                    />
+                @endforeach
+                @foreach ($mapSectors->where('show_label', true) as $sector)
+                    <text
+                        class="oz-sector-label"
+                        x="{{ $sector['label_x'] }}"
+                        y="{{ $sector['label_y'] }}"
+                        style="animation-delay: {{ $sector['activated_index'] * -2.8 }}s"
+                    >{{ $sector['name'] }}</text>
+                @endforeach
+            </svg>
+        </div>
 
         <header class="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
             <a href="/" class="flex items-center gap-3 text-lg font-semibold tracking-wide text-white">
@@ -233,61 +272,67 @@
             (function () {
                 var field = document.getElementById('tag-field');
                 if (!field || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+                if (!field.animate) return;
 
-                var callsigns = ['QFA738', 'JST421', 'VOZ912', 'ANZ87', 'TGG306', 'QLK551', 'REX1204', 'SIA221', 'UAE430', 'CPA173', 'FDX58', 'XCJ', 'ETD412', 'RCL11'];
-                var wakes = ['L', 'M', 'H'];
-                var actypes = ['B738', 'A320', 'A21N', 'B788', 'A332', 'B763', 'B752'];
-                var airports = ['YSSY', 'YBBN', 'YBTL', 'YMML', 'YPPH', 'YPAD'];
-                var runways = {
-                    YSSY: ['16L', '16R', '34L', '34R', '07', '25'],
-                    YBBN: ['01L', '01R', '19L', '19R'],
-                    YBTL: ['01', '19'],
-                    YMML: ['16', '34', '09', '27'],
-                    YPPH: ['03', '21', '06', '24'],
-                    YPAD: ['05', '23', '12', '30']
-                };
-                var levels = [280, 310, 330, 350, 370, 390];
-                var speeds = [38, 41, 44, 46, 49, 52];
-                var symbols = ['>', '^', 'v'];
-                var prefixes = ['', '', '', 'C', 'C', 'C01R', 'C02L'];
-                var count = 9;
+                // Positions come from the server, projected onto the map's 0-100 viewBox with
+                // the exact same lon/lat -> x/y formula used to draw the sector polygons above
+                // (see HomeController::projectX/projectY), so tags actually track over their
+                // real airport rather than just somewhere on screen.
+                var airports = @json($mapAirports);
+                var callsigns = ['QFA738', 'JST421', 'VOZ912', 'ANZ87', 'TGG306', 'QLK551', 'REX1204', 'VOZ33', 'JST221', 'QFA452', 'QFA12', 'JST885', 'VOZ777', 'TGG64', 'QLK890', 'REX330', 'NAU123', 'CPA104', 'SIA212', 'ANZ501'];
+                var tagCount = 5 + Math.floor(Math.random() * 46); // 5-50
 
-                for (var i = 0; i < count; i++) {
-                    var tag = document.createElement('div');
-                    tag.className = 'vatsys-tag' + (Math.random() < 0.3 ? ' tag--blue' : '');
+                function lerp(a, b, t) { return a + (b - a) * t; }
 
-                    var duration = 55 + Math.random() * 45;
-                    tag.style.top = (Math.random() * 88) + '%';
-                    tag.style.animationDuration = duration + 's';
-                    tag.style.animationDelay = (-Math.random() * duration) + 's';
+                function randomAirportPair() {
+                    var from = airports[Math.floor(Math.random() * airports.length)];
+                    var to;
+                    do {
+                        to = airports[Math.floor(Math.random() * airports.length)];
+                    } while (to === from);
+                    return [from, to];
+                }
 
-                    var cs = callsigns[Math.floor(Math.random() * callsigns.length)];
-                    var wake = wakes[Math.floor(Math.random() * wakes.length)];
-                    var lvl = levels[Math.floor(Math.random() * levels.length)];
-                    var sym = symbols[Math.floor(Math.random() * symbols.length)];
-                    var clr = levels[Math.floor(Math.random() * levels.length)];
-                    var spd = speeds[Math.floor(Math.random() * speeds.length)];
-                    var apt = airports[Math.floor(Math.random() * airports.length)];
-                    var act = actypes[Math.floor(Math.random() * actypes.length)];
-                    var prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-                    var aptRunways = runways[apt];
-                    var rwy = aptRunways[Math.floor(Math.random() * aptRunways.length)];
+                function flyTag(el, routeEl) {
+                    var pair = randomAirportPair();
+                    var from = pair[0];
+                    var to = pair[1];
+                    routeEl.textContent = from.code + '→' + to.code;
 
-                    var prefixLine = prefix ? '<div class="tag-prefix">' + prefix + '</div>' : '';
-                    var rwyLine = Math.random() < 0.4 ? '<div class="tag-line3">' + rwy + '</div>' : '';
+                    // Fades in/out over the first and last 8% of the flight so tags never
+                    // just pop into existence mid-air or vanish on arrival.
+                    var fades = [0, 0.08, 0.92, 1];
+                    var keyframes = fades.map(function (t) {
+                        return {
+                            left: lerp(from.x, to.x, t) + '%',
+                            top: lerp(from.y, to.y, t) + '%',
+                            opacity: (t === 0 || t === 1) ? 0 : 0.85,
+                            offset: t,
+                        };
+                    });
 
-                    tag.innerHTML =
-                        '<span class="tag-target"></span>' +
-                        '<span class="tag-leader"></span>' +
-                        '<div class="tag-box">' +
-                            prefixLine +
-                            '<div class="tag-line1">' + cs + ' ' + wake + '</div>' +
-                            '<div class="tag-line2">' + lvl + sym + clr + ' ' + spd + '</div>' +
-                            '<div class="tag-line3">' + apt + ' ' + act + '</div>' +
-                            rwyLine +
-                        '</div>';
+                    var duration = 26000 + Math.random() * 20000;
+                    var anim = el.animate(keyframes, { duration: duration, easing: 'linear' });
+                    anim.onfinish = function () { flyTag(el, routeEl); };
+                }
 
-                    field.appendChild(tag);
+                for (var i = 0; i < tagCount; i++) {
+                    (function () {
+                        var tag = document.createElement('div');
+                        tag.className = 'vatsys-tag' + (Math.random() < 0.3 ? ' tag--blue' : '');
+                        tag.innerHTML =
+                            '<span class="tag-target"></span>' +
+                            '<span class="tag-leader"></span>' +
+                            '<div class="tag-box">' +
+                                '<div class="tag-line1">' + callsigns[Math.floor(Math.random() * callsigns.length)] + '</div>' +
+                                '<div class="tag-line2" data-route></div>' +
+                            '</div>';
+                        field.appendChild(tag);
+
+                        var routeEl = tag.querySelector('[data-route]');
+
+                        setTimeout(function () { flyTag(tag, routeEl); }, Math.random() * 4000);
+                    })();
                 }
             })();
         </script>
