@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Sector;
+use Illuminate\Support\Arr;
 
 class HomeController extends Controller
 {
@@ -20,8 +21,22 @@ class HomeController extends Controller
      * responsible for while combined (Sector::responsible_sectors, synced from
      * vatSys's own ResponsibleSectors - the same coverage MapController::sectors()
      * folds into a staffed sector's "online" area), pulses together as one group.
+     *
+     * Grouped into batches of at most MAX_ACTIVE_GROUP_SIZE so that no more than
+     * that many are ever pulsing at once - each batch gets its own slice of the
+     * animation cycle (see the animation-delay math in index()), and only one
+     * batch's slice is "live" at a time. Changing the number of batches here
+     * means updating the animation-duration and @keyframes percentages in
+     * landing.blade.php to match.
      */
-    private const ACTIVATED_SECTORS = ['BLA', 'GUN', 'SNO', 'INL', 'HYD'];
+    private const ACTIVATED_SECTOR_GROUPS = [
+        ['BLA', 'GUN', 'SNO', 'INL', 'HYD'],
+        ['TRT', 'OLW', 'ISA', 'KEN', 'KPL'],
+        ['ARL', 'MNN', 'ASP', 'TBD', 'MUN'],
+        ['HUO'],
+    ];
+
+    private const MAX_ACTIVE_GROUP_SIZE = 5;
 
     private const LON_MIN = 110.0;
 
@@ -42,6 +57,9 @@ class HomeController extends Controller
         ['code' => 'YMLT', 'lon' => 147.2089, 'lat' => -41.5453],
         ['code' => 'YMHB', 'lon' => 147.5103, 'lat' => -42.8389],
         ['code' => 'YBAS', 'lon' => 133.8981, 'lat' => -23.8058],
+        ['code' => 'YBRM', 'lon' => 122.2319, 'lat' => -17.9447],
+        ['code' => 'YAYE', 'lon' => 130.9761, 'lat' => -25.1867],
+        ['code' => 'YMIA', 'lon' => 142.0819, 'lat' => -34.2231],
     ];
 
     public function index()
@@ -53,16 +71,21 @@ class HomeController extends Controller
             ->with('volumes')
             ->get();
 
-        $primaries = Sector::whereIn('name', self::ACTIVATED_SECTORS)->get(['name', 'responsible_sectors']);
+        $primaries = Sector::whereIn('name', Arr::flatten(self::ACTIVATED_SECTOR_GROUPS))
+            ->get(['name', 'responsible_sectors']);
 
-        // Which primary (by its index in ACTIVATED_SECTORS) each activated sector
-        // belongs to - the primaries themselves, plus every child sector they cover
-        // once combined. A child shares its parent's activated_index so the whole
-        // group pulses in sync rather than independently.
+        // Which primary (by its slot in ACTIVATED_SECTOR_GROUPS) each activated
+        // sector belongs to - the primaries themselves, plus every child sector
+        // they cover once combined. A child shares its parent's activated_index so
+        // the whole group pulses in sync rather than independently. Each batch
+        // reserves MAX_ACTIVE_GROUP_SIZE slots regardless of its own size, so a
+        // batch's pulses never spill into the next batch's slice of the cycle.
         $activatedIndexByName = [];
 
-        foreach (self::ACTIVATED_SECTORS as $index => $name) {
-            $activatedIndexByName[$name] = $index;
+        foreach (self::ACTIVATED_SECTOR_GROUPS as $groupIndex => $group) {
+            foreach ($group as $positionInGroup => $name) {
+                $activatedIndexByName[$name] = $groupIndex * self::MAX_ACTIVE_GROUP_SIZE + $positionInGroup;
+            }
         }
 
         foreach ($primaries as $primary) {
@@ -112,7 +135,6 @@ class HomeController extends Controller
             return null;
         }
 
-        $points = $rings->flatten(1);
         $activatedIndex = $activatedIndexByName[$sector->name] ?? null;
 
         return [
@@ -120,12 +142,6 @@ class HomeController extends Controller
             'path' => $rings->map(fn (array $ring) => $this->ringToPath($ring))->implode(' '),
             'activated' => $activatedIndex !== null,
             'activated_index' => $activatedIndex,
-            // Labels are only worth showing for the primary sectors themselves -
-            // a dozen-plus child sectors lighting up with their own codes would
-            // just clutter the map.
-            'show_label' => in_array($sector->name, self::ACTIVATED_SECTORS, true),
-            'label_x' => round($points->avg(fn (array $point) => $this->projectX($point['lon'])), 2),
-            'label_y' => round($points->avg(fn (array $point) => $this->projectY($point['lat'])), 2),
         ];
     }
 

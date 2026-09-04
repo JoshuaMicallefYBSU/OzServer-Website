@@ -13,6 +13,18 @@
                 z-index: -10;
                 overflow: hidden;
                 pointer-events: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            /* A square viewport sized to the smaller of width/height, so it always fits fully
+               inside the window with nothing cropped - matching the map's own square (0-100)
+               viewBox. Flying tags are positioned by percentage within this same box (not the
+               full window), so they stay aligned with the sector shapes at every window size. */
+            .map-viewport {
+                position: relative;
+                width: 100vmin;
+                height: 100vmin;
             }
             .oz-map {
                 position: absolute;
@@ -31,22 +43,17 @@
                 stroke: #22d3ee;
                 stroke-width: 0.3;
                 opacity: 0.15;
-                animation: sector-activate 14s ease-in-out infinite;
-            }
-            .oz-sector-label {
-                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                font-size: 2.6px;
-                fill: #67e8f9;
-                text-anchor: middle;
-                dominant-baseline: middle;
-                opacity: 0.15;
-                animation: sector-activate 14s ease-in-out infinite;
+                /* 4 batches (see HomeController::ACTIVATED_SECTOR_GROUPS) x 5 slots x 2.8s/slot
+                   = 56s. Percentages below are the original single-batch 14s timing (15%/50%/65%)
+                   rescaled onto that 56s cycle, so each batch gets an exclusive 14s slice and no
+                   more than MAX_ACTIVE_GROUP_SIZE sectors are ever lit at once. */
+                animation: sector-activate 56s ease-in-out infinite;
             }
             @keyframes sector-activate {
                 0%, 100% { opacity: 0.15; }
-                15% { opacity: 1; }
-                50% { opacity: 1; }
-                65% { opacity: 0.15; }
+                3.75% { opacity: 1; }
+                12.5% { opacity: 1; }
+                16.25% { opacity: 0.15; }
             }
             .vatsys-tag {
                 position: absolute;
@@ -95,29 +102,23 @@
             .vatsys-tag { color: #a5f3dc; }
             .vatsys-tag.tag--blue { color: #93c5fd; }
             @media (prefers-reduced-motion: reduce) {
-                .oz-sector-active, .oz-sector-label { animation: none; opacity: 0.5; }
+                .oz-sector-active { animation: none; opacity: 0.5; }
             }
         </style>
     </head>
     <body class="min-h-screen bg-slate-950 text-slate-100">
         <div class="tag-field" id="tag-field">
-            <svg class="oz-map" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                @foreach ($mapSectors as $sector)
-                    <path
-                        class="{{ $sector['activated'] ? 'oz-sector-active' : 'oz-sector-static' }}"
-                        d="{{ $sector['path'] }}"
-                        @if ($sector['activated']) style="animation-delay: {{ $sector['activated_index'] * -2.8 }}s" @endif
-                    />
-                @endforeach
-                @foreach ($mapSectors->where('show_label', true) as $sector)
-                    <text
-                        class="oz-sector-label"
-                        x="{{ $sector['label_x'] }}"
-                        y="{{ $sector['label_y'] }}"
-                        style="animation-delay: {{ $sector['activated_index'] * -2.8 }}s"
-                    >{{ $sector['name'] }}</text>
-                @endforeach
-            </svg>
+            <div class="map-viewport" id="map-viewport">
+                <svg class="oz-map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                    @foreach ($mapSectors as $sector)
+                        <path
+                            class="{{ $sector['activated'] ? 'oz-sector-active' : 'oz-sector-static' }}"
+                            d="{{ $sector['path'] }}"
+                            @if ($sector['activated']) style="animation-delay: {{ $sector['activated_index'] * -2.8 }}s" @endif
+                        />
+                    @endforeach
+                </svg>
+            </div>
         </div>
 
         <header class="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
@@ -270,7 +271,7 @@
             })();
 
             (function () {
-                var field = document.getElementById('tag-field');
+                var field = document.getElementById('map-viewport');
                 if (!field || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
                 if (!field.animate) return;
 
@@ -279,8 +280,23 @@
                 // (see HomeController::projectX/projectY), so tags actually track over their
                 // real airport rather than just somewhere on screen.
                 var airports = @json($mapAirports);
-                var callsigns = ['QFA738', 'JST421', 'VOZ912', 'ANZ87', 'TGG306', 'QLK551', 'REX1204', 'VOZ33', 'JST221', 'QFA452', 'QFA12', 'JST885', 'VOZ777', 'TGG64', 'QLK890', 'REX330', 'NAU123', 'CPA104', 'SIA212', 'ANZ501'];
+                var airlinePrefixes = ['QFA', 'JST', 'VOZ', 'ANZ', 'TGG', 'QLK', 'REX', 'NAU', 'CPA', 'SIA'];
                 var tagCount = 5 + Math.floor(Math.random() * 46); // 5-50
+
+                // Each tag keeps its callsign for its whole (endless) lifetime, so drawing
+                // from this shared set on creation is enough to guarantee no two tags ever
+                // show the same callsign at once.
+                var usedCallsigns = new Set();
+
+                function nextCallsign() {
+                    var callsign;
+                    do {
+                        var prefix = airlinePrefixes[Math.floor(Math.random() * airlinePrefixes.length)];
+                        callsign = prefix + (1 + Math.floor(Math.random() * 999));
+                    } while (usedCallsigns.has(callsign));
+                    usedCallsigns.add(callsign);
+                    return callsign;
+                }
 
                 function lerp(a, b, t) { return a + (b - a) * t; }
 
@@ -324,7 +340,7 @@
                             '<span class="tag-target"></span>' +
                             '<span class="tag-leader"></span>' +
                             '<div class="tag-box">' +
-                                '<div class="tag-line1">' + callsigns[Math.floor(Math.random() * callsigns.length)] + '</div>' +
+                                '<div class="tag-line1">' + nextCallsign() + '</div>' +
                                 '<div class="tag-line2" data-route></div>' +
                             '</div>';
                         field.appendChild(tag);
