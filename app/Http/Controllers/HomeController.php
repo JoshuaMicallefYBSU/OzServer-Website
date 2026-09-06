@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Sector;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class HomeController extends Controller
 {
@@ -18,9 +20,10 @@ class HomeController extends Controller
 
     /**
      * These "activate" on the homepage map - each one, plus every sector it's
-     * responsible for while combined (Sector::responsible_sectors, synced from
-     * vatSys's own ResponsibleSectors - the same coverage MapController::sectors()
-     * folds into a staffed sector's "online" area), pulses together as one group.
+     * responsible for while combined (a sector's own `responsible_sectors`,
+     * synced from vatSys's own ResponsibleSectors - the same coverage
+     * OzServer-API's /map/sectors folds into a staffed sector's "online" area),
+     * pulses together as one group.
      *
      * Grouped into batches of at most MAX_ACTIVE_GROUP_SIZE so that no more than
      * that many are ever pulsing at once - each batch gets its own slice of the
@@ -64,15 +67,12 @@ class HomeController extends Controller
 
     public function index()
     {
-        // Kept fresh automatically by App\Jobs\SyncVatsysDatasetJob, scheduled
-        // dailyAt('10:15') in routes/console.php - no separate fetch needed here.
-        $ctrSectors = Sector::where('type', 'CTR')
-            ->whereNotIn('name', self::EXCLUDED_SECTORS)
-            ->with('volumes')
-            ->get();
+        $allSectors = $this->sectorShapes()->keyBy('name');
 
-        $primaries = Sector::whereIn('name', Arr::flatten(self::ACTIVATED_SECTOR_GROUPS))
-            ->get(['name', 'responsible_sectors']);
+        $ctrSectors = $allSectors->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
+            && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true));
+
+        $primaries = $allSectors->only(Arr::flatten(self::ACTIVATED_SECTOR_GROUPS));
 
         // Which primary (by its slot in ACTIVATED_SECTOR_GROUPS) each activated
         // sector belongs to - the primaries themselves, plus every child sector
@@ -89,23 +89,21 @@ class HomeController extends Controller
         }
 
         foreach ($primaries as $primary) {
-            $parentIndex = $activatedIndexByName[$primary->name];
+            $parentIndex = $activatedIndexByName[$primary['name']];
 
-            foreach ($primary->responsible_sectors ?? [] as $childName) {
+            foreach ($primary['responsible_sectors'] ?? [] as $childName) {
                 $activatedIndexByName[$childName] ??= $parentIndex;
             }
         }
 
         // Child sectors aren't necessarily CTR (e.g. BLA covers the MAE/MAV/SAS/PHA
-        // approach sectors while combined) - fetch whichever of them the CTR query
+        // approach sectors while combined) - fetch whichever of them the CTR filter
         // above didn't already pick up.
-        $missingChildren = array_diff(array_keys($activatedIndexByName), $ctrSectors->pluck('name')->all());
-        $extraSectors = $missingChildren !== []
-            ? Sector::whereIn('name', $missingChildren)->with('volumes')->get()
-            : collect();
+        $missingChildren = array_diff(array_keys($activatedIndexByName), $ctrSectors->keys()->all());
+        $extraSectors = $allSectors->only($missingChildren);
 
         $sectors = $ctrSectors->concat($extraSectors)
-            ->map(fn (Sector $sector) => $this->sectorToMapData($sector, $activatedIndexByName))
+            ->map(fn (array $sector) => $this->sectorToMapData($sector, $activatedIndexByName))
             ->filter()
             ->values();
 
@@ -122,23 +120,57 @@ class HomeController extends Controller
     }
 
     /**
+     * Every sector's static geometry, from OzServer-API's public
+     * /map/sector-shapes (unlike /map/sectors, not staffed-only - the homepage's
+     * animation is a decorative loop unrelated to who is actually online).
+     *
+     * Cached for a day on success, since the underlying dataset only changes
+     * when OzServer-API's own daily sync runs - the homepage has no need to hit
+     * the API on every single visit. Only a minute on failure/empty though, so
+     * a transient API outage self-heals quickly instead of leaving the
+     * homepage's map empty for the rest of the day.
+     */
+    private function sectorShapes(): Collection
+    {
+        $cached = Cache::get('landing-sector-shapes');
+
+        if ($cached !== null) {
+            return collect($cached);
+        }
+
+        try {
+            $response = Http::timeout(5)->get(
+                rtrim(config('services.ozserver_api.url'), '/').'/api/v1/map/sector-shapes'
+            );
+
+            $sectors = $response->successful() ? $response->json() : [];
+        } catch (\Throwable) {
+            $sectors = [];
+        }
+
+        Cache::put('landing-sector-shapes', $sectors, $sectors === [] ? now()->addMinute() : now()->addDay());
+
+        return collect($sectors);
+    }
+
+    /**
+     * @param  array<string, mixed>  $sector
      * @param  array<string, int>  $activatedIndexByName
      */
-    private function sectorToMapData(Sector $sector, array $activatedIndexByName): ?array
+    private function sectorToMapData(array $sector, array $activatedIndexByName): ?array
     {
-        $rings = $sector->volumes
-            ->flatMap(fn ($volume) => $volume->boundary)
-            ->filter(fn ($ring) => count($ring) > 1)
+        $rings = collect($sector['boundary'] ?? [])
+            ->filter(fn (array $ring) => count($ring) > 1)
             ->values();
 
         if ($rings->isEmpty()) {
             return null;
         }
 
-        $activatedIndex = $activatedIndexByName[$sector->name] ?? null;
+        $activatedIndex = $activatedIndexByName[$sector['name']] ?? null;
 
         return [
-            'name' => $sector->name,
+            'name' => $sector['name'],
             'path' => $rings->map(fn (array $ring) => $this->ringToPath($ring))->implode(' '),
             'activated' => $activatedIndex !== null,
             'activated_index' => $activatedIndex,
