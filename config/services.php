@@ -43,6 +43,12 @@ return [
     // configuration lets staging use its own API without rebuilding the frontend assets.
     'ozserver_api' => [
         'url' => env('OZSERVER_API_URL', 'https://api.ozserver.org'),
+        // Gates /console (live client_logs tail) - a deterrent, not real access control: it's
+        // checked client-side in the page's own JS, which anyone can read regardless of whether
+        // they've typed it in. The underlying API endpoint it calls has no stronger protection of
+        // its own either (self-asserted identity, like every other OzServer-API route), so this is
+        // no weaker than the rest of the system - just enough to keep the console off casual view.
+        'console_password' => env('OZSERVER_CONSOLE_PASSWORD'),
     ],
 
 ];
