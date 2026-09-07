@@ -8,9 +8,10 @@
             html, body { margin: 0; height: 100%; background: #020617; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; }
 
             .oz-gate {
-                position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+                position: fixed; inset: 0; align-items: center; justify-content: center;
                 background: #020617;
             }
+            .oz-gate:not([hidden]) { display: flex; }
             .oz-gate-box {
                 background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 12px; padding: 32px; width: 280px; text-align: center;
