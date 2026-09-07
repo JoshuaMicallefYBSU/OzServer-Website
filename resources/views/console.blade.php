@@ -28,7 +28,8 @@
             .oz-gate-box button:hover { background: #67e8f9; }
             .oz-gate-error { color: #f87171; font-size: 12px; margin: 10px 0 0; }
 
-            #app { position: absolute; inset: 0; display: flex; flex-direction: column; }
+            #app { position: absolute; inset: 0; flex-direction: column; }
+            #app:not([hidden]) { display: flex; }
 
             .oz-toolbar {
                 display: flex; align-items: center; gap: 12px; padding: 10px 16px;
