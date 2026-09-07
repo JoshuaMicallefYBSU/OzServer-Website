@@ -23,14 +23,14 @@
                 font-size: 13px;
             }
 
-            .oz-server-switcher { top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; }
+            .oz-server-switcher { top: 16px; left: 16px; display: flex; align-items: center; gap: 8px; }
             .oz-server-switcher label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
             .oz-server-switcher select {
                 background: #0f172a; color: #e2e8f0; border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px; padding: 4px 8px; font: inherit; font-family: ui-sans-serif, system-ui, sans-serif;
             }
 
-            .oz-controllers-panel { top: 64px; right: 16px; min-width: 220px; max-height: 60vh; overflow-y: auto; }
+            .oz-controllers-panel { top: 16px; right: 16px; min-width: 220px; max-height: 60vh; overflow-y: auto; }
             .oz-controllers-panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
             .oz-controllers-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
             .oz-controllers-panel li { display: flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace; }
@@ -85,7 +85,6 @@
                 { value: 'live', label: 'Live VATSIM' },
                 { value: 'sb1', label: 'SweatBox 1' },
                 { value: 'sb2', label: 'SweatBox 2' },
-                { value: 'newsb', label: 'LocalHost' },
             ];
             let currentServer = new URLSearchParams(window.location.search).get('server');
 
