@@ -23,7 +23,14 @@
                 font-size: 13px;
             }
 
-            .oz-controllers-panel { top: 16px; right: 16px; min-width: 220px; max-height: 60vh; overflow-y: auto; }
+            .oz-server-switcher { top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; }
+            .oz-server-switcher label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+            .oz-server-switcher select {
+                background: #0f172a; color: #e2e8f0; border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px; padding: 4px 8px; font: inherit; font-family: ui-sans-serif, system-ui, sans-serif;
+            }
+
+            .oz-controllers-panel { top: 64px; right: 16px; min-width: 220px; max-height: 60vh; overflow-y: auto; }
             .oz-controllers-panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
             .oz-controllers-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
             .oz-controllers-panel li { display: flex; align-items: center; gap: 8px; font-family: ui-monospace, monospace; }
@@ -67,6 +74,26 @@
         <script>
             const apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
             const POLL_INTERVAL_MS = 15000;
+
+            // Which of the 4 fully isolated OzServer environments this page is showing - never
+            // more than one at a time, since every endpoint below now requires it. Read from the
+            // URL so /ops?server=sb1 is directly shareable/bookmarkable; the dropdown built below
+            // keeps both the URL and every live data source in sync when it changes, without a
+            // reload. DEFAULT_SERVERS is a fallback only - populateServerOptions() overwrites it
+            // from GET /api/v1/servers below so a server added there doesn't also need editing here.
+            const DEFAULT_SERVERS = [
+                { value: 'live', label: 'Live VATSIM' },
+                { value: 'sb1', label: 'SweatBox 1' },
+                { value: 'sb2', label: 'SweatBox 2' },
+                { value: 'newsb', label: 'LocalHost' },
+            ];
+            let currentServer = new URLSearchParams(window.location.search).get('server');
+
+            function apiUrl(path) {
+                const url = new URL(apiBaseUrl + path);
+                url.searchParams.set('server', currentServer);
+                return url.toString();
+            }
 
             mapboxgl.accessToken = document.querySelector('meta[name="mapbox-token"]').content;
 
@@ -140,6 +167,50 @@
             }
 
             const controllersList = buildControllersPanel();
+
+            function buildServerSwitcher() {
+                const panel = document.createElement('div');
+                panel.className = 'oz-panel oz-server-switcher';
+                panel.innerHTML = '<label for="oz-server-select">Server</label><select id="oz-server-select"></select>';
+                document.body.appendChild(panel);
+                return panel.querySelector('#oz-server-select');
+            }
+
+            const serverSelect = buildServerSwitcher();
+
+            // Rebuilds the dropdown's options from a {value, label} list and keeps currentServer
+            // valid against whatever that list actually contains - falling back to its first entry
+            // if the URL named a server that doesn't (or no longer) exists.
+            function populateServerOptions(servers) {
+                serverSelect.innerHTML = servers
+                    .map((server) => `<option value="${server.value}">${server.label}</option>`)
+                    .join('');
+
+                if (!servers.some((server) => server.value === currentServer)) {
+                    currentServer = servers[0]?.value ?? 'live';
+                }
+                serverSelect.value = currentServer;
+            }
+
+            populateServerOptions(DEFAULT_SERVERS);
+
+            // Single source of truth for the allowlist lives on the API (auth.ts SERVERS) - this
+            // just keeps the dropdown from silently drifting out of sync with it. Falls back
+            // silently to DEFAULT_SERVERS above if unreachable; nothing here depends on it landing
+            // before the map itself loads.
+            fetch(`${apiBaseUrl}/api/v1/servers`, { headers: { Accept: 'application/json' } })
+                .then((response) => response.json())
+                .then((servers) => {
+                    if (Array.isArray(servers) && servers.length) populateServerOptions(servers);
+                })
+                .catch(() => {});
+
+            serverSelect.addEventListener('change', () => {
+                currentServer = serverSelect.value;
+                history.replaceState(null, '', `/ops?server=${encodeURIComponent(currentServer)}`);
+                subscribeToEvents();
+                refreshAll();
+            });
 
             // Read-only - claiming/releasing sectors happens through the
             // vatSys plugin, not this site.
@@ -232,7 +303,7 @@
             }
 
             async function refreshSectors() {
-                const response = await fetch(`${apiBaseUrl}/api/v1/map/sectors`, { headers: { Accept: 'application/json' } });
+                const response = await fetch(apiUrl('/api/v1/map/sectors'), { headers: { Accept: 'application/json' } });
                 const sectors = await response.json();
 
                 const source = map.getSource('sectors');
@@ -281,7 +352,7 @@
             }
 
             async function refreshAircraft() {
-                const response = await fetch(`${apiBaseUrl}/api/v1/map/aircraft`, { headers: { Accept: 'application/json' } });
+                const response = await fetch(apiUrl('/api/v1/map/aircraft'), { headers: { Accept: 'application/json' } });
                 const flights = await response.json();
 
                 const seen = new Set();
@@ -316,7 +387,7 @@
             }
 
             async function refreshAtis() {
-                const response = await fetch(`${apiBaseUrl}/api/v1/map/atis`, { headers: { Accept: 'application/json' } });
+                const response = await fetch(apiUrl('/api/v1/map/atis'), { headers: { Accept: 'application/json' } });
                 const broadcasts = await response.json();
 
                 const seen = new Set();
@@ -350,7 +421,7 @@
             }
 
             async function refreshControllers() {
-                const response = await fetch(`${apiBaseUrl}/api/v1/map/controllers`, { headers: { Accept: 'application/json' } });
+                const response = await fetch(apiUrl('/api/v1/map/controllers'), { headers: { Accept: 'application/json' } });
                 const controllers = await response.json();
 
                 controllersList.innerHTML = controllers.length
@@ -394,12 +465,23 @@
             // The interval poll below is deliberately kept. If the stream is unavailable - an old
             // browser, a proxy that eats long-lived responses, the API restarting - the map falls
             // back to exactly its previous behaviour instead of quietly going stale.
+            //
+            // Re-callable, not a one-time setup: every SSE subscription is scoped to one server
+            // (?server= on /api/v1/events), so switching the dropdown has to close the old stream
+            // and open a fresh one against the newly selected server rather than leaving the page
+            // listening to events for a server it isn't showing any more.
+            let eventSource = null;
+
             function subscribeToEvents() {
                 if (!window.EventSource) {
                     return;
                 }
 
-                const source = new EventSource(`${apiBaseUrl}/api/v1/events`);
+                if (eventSource) {
+                    eventSource.close();
+                }
+
+                eventSource = new EventSource(apiUrl('/api/v1/events'));
                 const onSectors = coalesce(() => {
                     refreshSectors();
                     refreshControllers();
@@ -407,14 +489,14 @@
                 const onAircraft = coalesce(refreshAircraft, 1000);
                 const onAtis = coalesce(refreshAtis, 250);
 
-                source.addEventListener('sectors', onSectors);
-                source.addEventListener('fdr', onAircraft);
-                source.addEventListener('atis', onAtis);
+                eventSource.addEventListener('sectors', onSectors);
+                eventSource.addEventListener('fdr', onAircraft);
+                eventSource.addEventListener('atis', onAtis);
 
                 // EventSource reconnects on its own, so a transient error is not worth acting on -
                 // and must not be treated as fatal, or one blip would leave the page on the poll
                 // alone for the rest of the session.
-                source.onerror = () => {};
+                eventSource.onerror = () => {};
             }
 
             map.on('load', () => {

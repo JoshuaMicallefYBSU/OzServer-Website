@@ -255,12 +255,14 @@
                 var aircraftEl = document.getElementById('stat-aircraft');
 
                 function loadStats() {
-                    fetch(apiBaseUrl + '/api/v1/map/controllers', { headers: { Accept: 'application/json' } })
+                    // Always the real network, not switchable - this is the public homepage, and
+                    // /api/v1/map/* now requires ?server= on every request (see map.ts).
+                    fetch(apiBaseUrl + '/api/v1/map/controllers?server=live', { headers: { Accept: 'application/json' } })
                         .then(function (response) { return response.json(); })
                         .then(function (controllers) { controllersEl.textContent = controllers.length; })
                         .catch(function () { controllersEl.textContent = '?'; });
 
-                    fetch(apiBaseUrl + '/api/v1/map/aircraft', { headers: { Accept: 'application/json' } })
+                    fetch(apiBaseUrl + '/api/v1/map/aircraft?server=live', { headers: { Accept: 'application/json' } })
                         .then(function (response) { return response.json(); })
                         .then(function (aircraft) { aircraftEl.textContent = aircraft.length; })
                         .catch(function () { aircraftEl.textContent = '?'; });
