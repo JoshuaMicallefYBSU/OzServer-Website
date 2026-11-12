@@ -279,24 +279,34 @@
                 `;
             }
 
-            // Frequencies are stored FSD-style (freq_mhz - 100) * 1000, e.g.
-            // 132.500 MHz is saved as 32500 - see AtisController/migration.
-            function formatAtisFrequency(frequency) {
-                return frequency !== null ? (100 + frequency / 1000).toFixed(3) : null;
+            // An ATIS is published to the API by a plugin, which anyone can reach - so unlike the
+            // rest of this page, none of it may go into the popup's markup as-is.
+            function escapeHtml(value) {
+                return String(value).replace(/[&<>"']/g, (character) => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                }[character]));
             }
 
+            // The API serves both kinds of ATIS in one shape (see /map/atis): frequency is already
+            // the readable "126.250", issued is a DDHHMM day-time group, and content is either the
+            // sections in ATIS-editor order or, for a zulu broadcast, its text. A section the
+            // letter changed is marked the way vatSys marks it - with a leading +.
             function atisPopupHtml(atis) {
-                const freq = formatAtisFrequency(atis.frequency);
-                const contentRows = Object.entries(atis.content ?? {})
-                    .map(([field, value]) => `<p><strong>${field}:</strong> ${value}</p>`)
-                    .join('');
+                const changed = new Set(atis.changed ?? []);
+                const body = typeof atis.content === 'string'
+                    ? `<p>${escapeHtml(atis.content)}</p>`
+                    : Object.entries(atis.content ?? {})
+                        .filter(([, value]) => value !== null && value !== '')
+                        .map(([field, value]) =>
+                            `<p><strong>${changed.has(field) ? '+' : ''}${escapeHtml(field)}:</strong> ${escapeHtml(value)}</p>`)
+                        .join('');
 
                 return `
                     <div class="oz-atis-popup">
-                        <h3>${atis.icao} ATIS ${atis.atis_letter}</h3>
-                        ${freq ? `<p>${freq} MHz</p>` : ''}
-                        ${contentRows}
-                        <p>Last seen ${formatTime(atis.last_seen_at)}</p>
+                        <h3>${escapeHtml(atis.icao)} ATIS ${escapeHtml(atis.atis_letter)}</h3>
+                        ${atis.frequency ? `<p>${escapeHtml(atis.frequency)} MHz</p>` : ''}
+                        ${body}
+                        ${atis.issued ? `<p>Issued ${escapeHtml(atis.issued)}</p>` : ''}
                     </div>
                 `;
             }
@@ -399,13 +409,15 @@
                     if (!marker) {
                         const el = document.createElement('div');
                         el.className = 'oz-atis-marker';
-                        el.textContent = 'A';
 
                         marker = new mapboxgl.Marker({ element: el });
                         marker.setPopup(new mapboxgl.Popup({ offset: 12 }));
                         atisMarkers.set(atis.icao, marker);
                     }
 
+                    // The letter itself, so the map says which ATIS is current without a click.
+                    // Set on every pass, not only on the first: the letter is what changes.
+                    marker.getElement().textContent = atis.atis_letter;
                     marker.setLngLat([atis.lon, atis.lat]);
                     marker.getPopup().setHTML(atisPopupHtml(atis));
                     marker.addTo(map);
