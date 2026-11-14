@@ -150,6 +150,7 @@
             .oz-legend .l-req { width: 14px; border-top: 2px dashed var(--warn); }
             .oz-legend .l-sel { width: 14px; border-top: 2px solid #fff; }
             .oz-legend .l-ho { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--warn); }
+            .oz-legend .l-box { width: 8px; height: 8px; border: 2px solid #94a3b8; }
             .oz-legend .l-tri { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c); }
 
             .oz-filters { border-top: 1px solid var(--line); padding: 8px 10px 2px; }
@@ -276,6 +277,7 @@
                 <span><i class="l-req"></i>Requested</span>
                 <span><i class="l-tri" style="--c:#16a34a"></i>Owned tag</span>
                 <span><i class="l-tri" style="--c:#94a3b8"></i>No owner</span>
+                <span><i class="l-box"></i>Not coupled</span>
                 <span><b style="color:#4ade80">▲</b>Awaiting departure</span>
                 <span><b style="color:#f87171">▼</b>Completed</span>
                 <span><i class="l-ho"></i>Handoff</span>
@@ -778,7 +780,13 @@
                 }
             }
 
-            function aircraftSvg(colour) {
+            // An aircraft symbol for an FDR coupled to its radar track; a box for one that is not - a
+            // flight plan track, placed where the plan says it should be (vatSys draws them the same way).
+            // Records from before the plugin reported coupling carry no flag and keep the arrow.
+            function aircraftSvg(colour, coupled = true) {
+                if (!coupled) {
+                    return `<svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" fill="none" stroke="${colour}" stroke-width="2"/></svg>`;
+                }
                 return `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 14,16 8,12 2,16" fill="${colour}" stroke="#020617" stroke-width="0.8"/></svg>`;
             }
 
@@ -927,14 +935,17 @@
                         aircraftMarkers.set(flight.callsign, entry);
                     }
                     const colour = flight.controlling_callsign ? TRACKED_COLOUR : UNTRACKED_COLOUR;
-                    if (entry.colour !== colour) {
-                        entry.el.innerHTML = aircraftSvg(colour) + `<span class="oz-ac-label"></span>`;
-                        entry.colour = colour;
+                    const coupled = flight.coupled !== false;
+                    const look = `${colour}|${coupled}`;
+                    if (entry.colour !== look) {
+                        entry.el.innerHTML = aircraftSvg(colour, coupled) + `<span class="oz-ac-label"></span>`;
+                        entry.colour = look;
                     }
                     const label = entry.el.querySelector('.oz-ac-label');
                     label.textContent = `${flight.callsign} ${flight.altitude != null ? Math.round(flight.altitude / 100).toString().padStart(3, '0') : ''}`;
                     label.style.setProperty('--c', colour);
-                    entry.el.querySelector('svg').style.transform = `rotate(${flight.heading ?? 0}deg)`;
+                    // A box has no heading to show.
+                    entry.el.querySelector('svg').style.transform = coupled ? `rotate(${flight.heading ?? 0}deg)` : '';
 
                     entry.el.title = `${flight.callsign}${flight.controlling_callsign ? ' - ' + flight.controlling_callsign : ' - no owner'}`;
                     entry.el.classList.toggle('handover', isHandover(flight.state));
