@@ -45,6 +45,12 @@
             .oz-stat b { font-size: 15px; font-family: var(--mono); }
             .oz-stat small { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
             .oz-stat.warn b { color: var(--warn); }
+            .oz-btn {
+                background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 5px 10px;
+                cursor: pointer; white-space: nowrap; font-size: 12px;
+            }
+            .oz-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
+            .oz-btn.on { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.6); color: var(--accent); }
             .oz-live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
             .oz-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
             .oz-live.on i { background: var(--good); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2); }
@@ -167,11 +173,13 @@
             .oz-ad .up { color: #4ade80; }
             .oz-ad .down { color: #f87171; }
             .oz-ad.selected { border-color: #fff; }
-            .oz-ad-popup { font-size: 12px; min-width: 240px; max-width: 320px; }
+            .oz-ad-popup { font-size: 12px; min-width: 240px; }
             .oz-ad-popup h3 { margin: 0 0 6px; font-size: 14px; font-family: var(--mono); }
             .oz-ad-popup h4 { margin: 8px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
             .oz-ad-popup table { width: 100%; border-collapse: collapse; }
-            .oz-ad-popup td { padding: 2px 4px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; }
+            .oz-ad-popup td { padding: 2px 4px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+            .oz-ad-popup td:first-child { color: #f1f5f9; font-weight: 600; }
+            .oz-ad-popup-wrap .mapboxgl-popup-content { max-height: 50vh; overflow-y: auto; }
             .oz-ad-popup tr { cursor: pointer; }
             .oz-ad-popup tr:hover td { background: rgba(255, 255, 255, 0.05); }
 
@@ -224,6 +232,7 @@
             <div class="oz-brand">Oz<span>Server</span> Ops</div>
             <select id="oz-server-select" aria-label="Server"></select>
             <div class="oz-stats" id="oz-stats"></div>
+            <button type="button" class="oz-btn" id="oz-routes-btn" title="Draw every flight's route as vatSys parsed it">Show all routes</button>
             <div class="oz-live" id="oz-live" title="Live updates"><i></i><span>Connecting…</span></div>
         </header>
 
@@ -321,7 +330,7 @@
             // Saved in a cookie so a returning visitor gets the same map back.
             const PREFS_COOKIE = 'oz_ops_prefs';
             const DEFAULT_PREFS = {
-                layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, annotations: true, atis: true },
+                layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, annotations: true, atis: true, routes: false },
                 online: { ADC: true, APP: true, DEP: true, ENR: true, FMP: true },
                 offline: { ADC: false, APP: false, DEP: false, ENR: true, FMP: false },
             };
@@ -577,6 +586,39 @@
                     },
                 });
 
+                // Routes: what is still to be flown as a solid line, what has been flown (selected
+                // flight only) dashed, and the selected flight's waypoints named.
+                const empty = { type: 'FeatureCollection', features: [] };
+                map.addSource('routes', { type: 'geojson', data: empty });
+                map.addSource('route-points', { type: 'geojson', data: empty });
+                map.addLayer({
+                    id: 'routes-flown', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'flown'],
+                    layout: { 'line-join': 'round' },
+                    paint: { 'line-color': ['get', 'colour'], 'line-width': 1.5, 'line-opacity': 0.5, 'line-dasharray': [2, 2] },
+                });
+                map.addLayer({
+                    id: 'routes-remaining', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'remaining'],
+                    layout: { 'line-join': 'round', 'line-cap': 'round', 'line-sort-key': ['case', ['get', 'selected'], 1, 0] },
+                    paint: {
+                        'line-color': ['get', 'colour'],
+                        'line-width': ['case', ['get', 'selected'], 2.5, 1.2],
+                        'line-opacity': ['case', ['get', 'selected'], 0.95, 0.5],
+                    },
+                });
+                map.addLayer({
+                    id: 'route-points', type: 'circle', source: 'route-points',
+                    paint: { 'circle-radius': 3, 'circle-color': '#020617', 'circle-stroke-width': 1.5, 'circle-stroke-color': ['get', 'colour'] },
+                });
+                map.addLayer({
+                    id: 'route-point-labels', type: 'symbol', source: 'route-points',
+                    layout: {
+                        'text-field': ['get', 'name'], 'text-size': 10, 'text-offset': [0, 0.9], 'text-anchor': 'top',
+                        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                    },
+                    paint: { 'text-color': '#cbd5e1', 'text-halo-color': '#020617', 'text-halo-width': 1.2,
+                        'text-opacity': ['case', ['get', 'passed'], 0.45, 1] },
+                });
+
                 map.addSource('annotation-strokes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
                 map.addLayer({
                     id: 'annotation-strokes', type: 'line', source: 'annotation-strokes',
@@ -603,6 +645,9 @@
             // click often lands on several sectors. Prefer one someone holds, then the most specific
             // (tower over approach over en-route), then the smallest - and offer the rest in the panel.
             function onMapClick(e) {
+                // A click on a marker (an ATIS letter, an aerodrome count) or inside a popup is
+                // about that, not the airspace beneath it.
+                if (e.originalEvent?.target?.closest?.('.mapboxgl-marker, .mapboxgl-popup')) return;
                 const hits = map.queryRenderedFeatures(e.point, { layers: ['sectors-fill'] });
                 const focus = selectionFocus();
                 const names = [...new Set(hits.map((f) => f.properties.name))]
@@ -625,6 +670,7 @@
                 // of the sectors from that click.
                 if (selection?.kind !== 'sector' || !clickStack.includes(selection.id)) clickStack = [];
                 if (!fromHash) writeHash();
+                if (selection?.kind === 'flight' && !routes.has(selection.id)) refreshRoutes();
                 renderAll();
                 if (fly && selection) flyToSelection();
             }
@@ -770,7 +816,16 @@
                 return '';
             }
 
-            const aerodromeMarkers = new Map(); // ICAO -> { marker, el, popup }
+            // marker.addTo() first removes the marker - closing any popup attached to it - so calling
+            // it on every refresh (as this page used to) shut a popup moments after it opened. Only
+            // add or remove when visibility actually changes.
+            const markersOnMap = new WeakSet();
+            function setMarkerVisible(marker, visible) {
+                if (visible && !markersOnMap.has(marker)) { marker.addTo(map); markersOnMap.add(marker); }
+                else if (!visible && markersOnMap.has(marker)) { marker.remove(); markersOnMap.delete(marker); }
+            }
+
+            const aerodromeMarkers = new Map(); // ICAO -> { marker, el, popup, point, html }
 
             function aerodromePopupHtml(icao, pending, completed) {
                 const row = (f, cells) => `<tr data-select="flight:${esc(f.callsign)}">${cells.map((c) => `<td>${esc(c ?? '')}</td>`).join('')}</tr>`;
@@ -804,9 +859,18 @@
                     if (!entry) {
                         const el = document.createElement('div');
                         el.className = 'oz-ad';
-                        const popup = new mapboxgl.Popup({ offset: 12, maxWidth: '340px' });
-                        const marker = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [8, 0] }).setPopup(popup);
-                        entry = { marker, el, popup };
+                        el.title = 'Show flights';
+                        // Opened by hand rather than through marker.setPopup: the popup has to stay
+                        // open across refreshes (its rows are how you open each FDR), and a click on
+                        // the marker must not also select whatever sector lies underneath it.
+                        const popup = new mapboxgl.Popup({ offset: 12, maxWidth: '520px', className: 'oz-ad-popup-wrap' });
+                        const marker = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [8, 0] });
+                        entry = { marker, el, popup, point: null, html: '' };
+                        el.addEventListener('click', (event) => {
+                            event.stopPropagation();
+                            if (popup.isOpen()) { popup.remove(); return; }
+                            popup.setLngLat(entry.point).setHTML(entry.html).addTo(map);
+                        });
                         aerodromeMarkers.set(icao, entry);
                     }
                     const sortByCallsign = (a, b) => a.callsign.localeCompare(b.callsign);
@@ -817,12 +881,20 @@
                         + (group.completed.length ? `<span class="down">▼${group.completed.length}</span>` : '');
                     entry.el.classList.toggle('selected', !!focus?.flight
                         && [...group.pending, ...group.completed].some((f) => f.callsign === focus.flight));
-                    entry.popup.setHTML(aerodromePopupHtml(icao, group.pending, group.completed));
+                    entry.point = group.point;
+                    const html = aerodromePopupHtml(icao, group.pending, group.completed);
+                    // Rewritten only when it changed, so an open list is not reset under the pointer.
+                    if (html !== entry.html) {
+                        entry.html = html;
+                        if (entry.popup.isOpen()) entry.popup.setHTML(html);
+                    }
+                    if (entry.popup.isOpen()) entry.popup.setLngLat(group.point);
                     entry.marker.setLngLat(group.point);
-                    if (state.layers.aerodromes) entry.marker.addTo(map); else entry.marker.remove();
+                    setMarkerVisible(entry.marker, state.layers.aerodromes);
+                    if (!state.layers.aerodromes) entry.popup.remove();
                 }
                 for (const [icao, entry] of aerodromeMarkers) {
-                    if (!groups.has(icao)) { entry.marker.remove(); aerodromeMarkers.delete(icao); }
+                    if (!groups.has(icao)) { entry.popup.remove(); setMarkerVisible(entry.marker, false); aerodromeMarkers.delete(icao); }
                 }
             }
 
@@ -862,11 +934,106 @@
                     entry.el.classList.toggle('dim', !!focus && !focus.flight && focus.controller !== flight.controlling_callsign
                         && !(focus.selected && flight.current_sector === focus.selected));
                     entry.marker.setLngLat([flight.lon, flight.lat]);
-                    if (state.layers.aircraft) entry.marker.addTo(map); else entry.marker.remove();
+                    setMarkerVisible(entry.marker, state.layers.aircraft);
                 }
                 for (const [callsign, entry] of aircraftMarkers) {
-                    if (!seen.has(callsign)) { entry.marker.remove(); aircraftMarkers.delete(callsign); }
+                    if (!seen.has(callsign)) { setMarkerVisible(entry.marker, false); aircraftMarkers.delete(callsign); }
                 }
+            }
+
+            // ---------------- routes ----------------
+
+            const routes = new Map(); // callsign -> { points: [{n, lat, lon}], next }
+            let routesLoaded = false;
+
+            // Routes are only fetched while something needs them: all routes shown, or a flight
+            // selected that has one.
+            function routesWanted() {
+                if (state.layers.routes) return true;
+                const sel = state.selection;
+                return sel?.kind === 'flight' && !!state.flightsByCallsign.get(sel.id)?.has_route;
+            }
+
+            async function refreshRoutes() {
+                if (!routesWanted()) return;
+                try {
+                    const rows = await getJson('/api/v1/map/routes');
+                    routes.clear();
+                    for (const row of rows) {
+                        if (Array.isArray(row.route_points)) routes.set(row.callsign, { points: row.route_points, next: row.route_next_index ?? 0 });
+                    }
+                    routesLoaded = true;
+                    renderRoutes();
+                } catch (error) {
+                    console.warn(error);
+                }
+            }
+
+            function unwrapLine(coords) {
+                if (!coords.length) return coords;
+                const out = [coords[0]];
+                for (let i = 1; i < coords.length; i++) {
+                    let [lon, lat] = coords[i];
+                    const prev = out[i - 1][0];
+                    while (lon - prev > 180) lon -= 360;
+                    while (lon - prev < -180) lon += 360;
+                    out.push([lon, lat]);
+                }
+                return out;
+            }
+
+            function renderRoutes() {
+                const source = map.getSource('routes');
+                if (!source) return;
+                const selectedCallsign = state.selection?.kind === 'flight' ? state.selection.id : null;
+                const lines = [];
+                const points = [];
+
+                for (const flight of state.flights) {
+                    const selected = flight.callsign === selectedCallsign;
+                    const category = flightCategory(flight);
+                    // All routes shows traffic still going somewhere; a completed flight's route
+                    // only appears when it is the one selected.
+                    if (!selected && (!state.layers.routes || category === 'completed')) continue;
+                    const route = routes.get(flight.callsign);
+                    if (!route || route.points.length < 2) continue;
+
+                    const colour = selected ? HIGHLIGHT_COLOUR : flightColour(flight);
+                    const coords = route.points.map((p) => [p.lon, p.lat]);
+                    // A flight that has not departed has flown none of it, whatever the index says.
+                    const next = category === 'pending' ? 0 : Math.min(Math.max(route.next, 0), coords.length - 1);
+
+                    // From the aircraft itself to the next waypoint and on, so the line starts where
+                    // the tag is rather than at a waypoint already behind it.
+                    const here = category === 'airborne' && Number.isFinite(flight.lat) ? [[flight.lon, flight.lat]] : [];
+                    const remaining = unwrapLine([...here, ...coords.slice(next)]);
+                    if (remaining.length > 1) {
+                        lines.push({ type: 'Feature', properties: { kind: 'remaining', colour, selected },
+                            geometry: { type: 'LineString', coordinates: remaining } });
+                    }
+                    if (selected) {
+                        const flown = unwrapLine([...coords.slice(0, next + (here.length ? 0 : 1)), ...here]);
+                        if (flown.length > 1 && next > 0) {
+                            lines.push({ type: 'Feature', properties: { kind: 'flown', colour, selected },
+                                geometry: { type: 'LineString', coordinates: flown } });
+                        }
+                        route.points.forEach((p, i) => points.push({ type: 'Feature',
+                            properties: { name: p.n, colour, passed: i < next },
+                            geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }));
+                    }
+                }
+
+                source.setData({ type: 'FeatureCollection', features: lines });
+                map.getSource('route-points').setData({ type: 'FeatureCollection', features: points });
+            }
+
+            function setAllRoutes(on) {
+                state.layers.routes = on;
+                savePrefs();
+                const button = document.getElementById('oz-routes-btn');
+                button.classList.toggle('on', on);
+                button.textContent = on ? 'Hide all routes' : 'Show all routes';
+                if (on && !routesLoaded) refreshRoutes(); else { renderRoutes(); refreshRoutes(); }
             }
 
             function atisPopupHtml(atis) {
@@ -894,10 +1061,10 @@
                     marker.getElement().textContent = atis.atis_letter;
                     marker.setLngLat([atis.lon, atis.lat]);
                     marker.getPopup().setHTML(atisPopupHtml(atis));
-                    if (state.layers.atis) marker.addTo(map); else marker.remove();
+                    setMarkerVisible(marker, state.layers.atis);
                 }
                 for (const [icao, marker] of atisMarkers) {
-                    if (!seen.has(icao)) { marker.remove(); atisMarkers.delete(icao); }
+                    if (!seen.has(icao)) { setMarkerVisible(marker, false); atisMarkers.delete(icao); }
                 }
             }
 
@@ -929,10 +1096,10 @@
                     el.style.setProperty('--c', colourFor(note.author?.callsign));
                     el.innerHTML = `${esc(note.body)}<small>${esc(note.author?.callsign ?? '')}</small>`;
                     marker.setLngLat([note.points[0].lon, note.points[0].lat]);
-                    if (state.layers.annotations) marker.addTo(map); else marker.remove();
+                    setMarkerVisible(marker, state.layers.annotations);
                 }
                 for (const [id, marker] of noteMarkers) {
-                    if (!seen.has(id)) { marker.remove(); noteMarkers.delete(id); }
+                    if (!seen.has(id)) { setMarkerVisible(marker, false); noteMarkers.delete(id); }
                 }
             }
 
@@ -1287,7 +1454,7 @@
             // yet) must not leave every panel after it stale.
             function renderAll() {
                 for (const step of [applySectorStates, renderAircraft, renderAnnotations, renderAtis, renderStats,
-                    renderControllers, renderSectorsTab, renderRequestsTab, renderFlightsTab, renderActivity, renderDetail]) {
+                    renderControllers, renderSectorsTab, renderRequestsTab, renderFlightsTab, renderActivity, renderDetail, renderRoutes]) {
                     try { step(); } catch (error) { console.warn(step.name, error); }
                 }
             }
@@ -1473,6 +1640,7 @@
                 refreshAircraft();
                 refreshAtis();
                 refreshVatsimControllers();
+                refreshRoutes();
             }
 
             function resetForServer() {
@@ -1487,6 +1655,8 @@
                 state.feed = [];
                 state.unseenFeed = 0;
                 state.selection = null;
+                routes.clear();
+                routesLoaded = false;
                 renderAll();
             }
 
@@ -1512,6 +1682,8 @@
                 eventSource.addEventListener('sectors', onOps);
                 eventSource.addEventListener('annotations', onOps);
                 eventSource.addEventListener('fdr', coalesce(refreshAircraft, 1000));
+                // Routes change far less often than positions.
+                eventSource.addEventListener('fdr', coalesce(refreshRoutes, 5000));
                 eventSource.addEventListener('atis', coalesce(refreshAtis, 250));
             }
 
@@ -1633,6 +1805,8 @@
                 const fromHash = readHash();
                 if (fromHash) select(fromHash, { fromHash: true, fly: false });
                 setInterval(refreshAll, POLL_INTERVAL_MS);
+                setAllRoutes(!!state.layers.routes);
+                document.getElementById('oz-routes-btn').addEventListener('click', () => setAllRoutes(!state.layers.routes));
                 subscribeToEvents();
 
                 await styleReady;
