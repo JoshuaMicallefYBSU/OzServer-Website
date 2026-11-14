@@ -313,7 +313,6 @@
             const REQUEST_COLOUR = '#fb923c';
             const TRACKED_COLOUR = '#16a34a';   // a tag someone owns
             const UNTRACKED_COLOUR = '#94a3b8'; // a tag coasting with no owner (kept current by its data authority)
-            const RESPONSIBLE_COLOUR = '#ef4444'; // line to the controller keeping an untracked FDR current
 
             // The map's position filters: which kinds of sector are drawn, separately for online
             // (someone holds it) and offline. Categories follow the controller positions, not the
@@ -620,29 +619,6 @@
                         'text-opacity': ['case', ['get', 'passed'], 0.45, 1] },
                 });
 
-                // Who keeps the selected untracked FDR current: a red line from the aircraft to the
-                // nearest point of that controller's sector, labelled.
-                map.addSource('responsible', { type: 'geojson', data: empty });
-                map.addLayer({
-                    id: 'responsible-line', type: 'line', source: 'responsible', filter: ['==', ['geometry-type'], 'LineString'],
-                    layout: { 'line-cap': 'round' },
-                    paint: { 'line-color': RESPONSIBLE_COLOUR, 'line-width': 2.5, 'line-opacity': 0.95 },
-                });
-                map.addLayer({
-                    id: 'responsible-end', type: 'circle', source: 'responsible',
-                    filter: ['all', ['==', ['geometry-type'], 'Point'], ['!', ['has', 'label']]],
-                    paint: { 'circle-radius': 4, 'circle-color': RESPONSIBLE_COLOUR, 'circle-stroke-color': '#020617', 'circle-stroke-width': 1.5 },
-                });
-                map.addLayer({
-                    id: 'responsible-label', type: 'symbol', source: 'responsible',
-                    filter: ['all', ['==', ['geometry-type'], 'Point'], ['has', 'label']],
-                    layout: {
-                        'text-field': ['get', 'label'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [0.8, 0],
-                        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'], 'text-allow-overlap': true, 'text-ignore-placement': true,
-                    },
-                    paint: { 'text-color': '#fecaca', 'text-halo-color': '#020617', 'text-halo-width': 1.4 },
-                });
-
                 map.addSource('annotation-strokes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
                 map.addLayer({
                     id: 'annotation-strokes', type: 'line', source: 'annotation-strokes',
@@ -651,7 +627,11 @@
                 });
 
                 map.on('click', onMapClick);
-                map.on('mousemove', 'sectors-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+                // The pointer only where a click would pick something: held airspace, or any with Shift.
+                map.on('mousemove', 'sectors-fill', (e) => {
+                    const clickable = e.originalEvent?.shiftKey || e.features.some((f) => state.owners.has(f.properties.name));
+                    map.getCanvas().style.cursor = clickable ? 'pointer' : '';
+                });
                 map.on('mouseleave', 'sectors-fill', () => { map.getCanvas().style.cursor = ''; });
             }
 
@@ -674,8 +654,12 @@
                 if (e.originalEvent?.target?.closest?.('.mapboxgl-marker, .mapboxgl-popup')) return;
                 const hits = map.queryRenderedFeatures(e.point, { layers: ['sectors-fill'] });
                 const focus = selectionFocus();
+                // A plain click is for online airspace - someone holds it. Offline sectors are drawn
+                // underneath everywhere, and picking one up by accident on every click got in the way;
+                // they are still there with Shift held.
+                const withOffline = !!e.originalEvent?.shiftKey;
                 const names = [...new Set(hits.map((f) => f.properties.name))]
-                    .filter((n) => state.shapes.has(n) && sectorShown(n, focus));
+                    .filter((n) => state.shapes.has(n) && sectorShown(n, focus) && (withOffline || state.owners.has(n)));
                 if (!names.length) { select(null); return; }
                 names.sort((a, b) => {
                     const sa = state.shapes.get(a), sb = state.shapes.get(b);
@@ -1053,81 +1037,24 @@
 
             // ---------------- who keeps an untracked FDR current ----------------
 
-            // The same rule the plugin applies (FdrSync.ResponsibleSectorForUntracked): the held
-            // sector the aircraft is in, otherwise the held sector nearest to it by straight-line
-            // distance to its boundary, ties to the first name. Only controllers who are online count.
-            // Flat-earth with longitude scaled to the aircraft's latitude, as in the plugin.
-            function nearestOnSector(shape, lon, lat) {
-                const k = Math.cos(lat * Math.PI / 180);
-                let best = { distance: Infinity, point: null };
-                for (const ring of shape.boundary ?? []) {
-                    if (ring.length < 3) continue;
-                    let inside = false;
-                    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-                        const xi = (ring[i].lon - lon) * k * 60, yi = (ring[i].lat - lat) * 60;
-                        const xj = (ring[j].lon - lon) * k * 60, yj = (ring[j].lat - lat) * 60;
-                        if ((yi > 0) !== (yj > 0) && 0 < (xj - xi) * (0 - yi) / (yj - yi) + xi) inside = !inside;
-                        const dx = xj - xi, dy = yj - yi, len2 = dx * dx + dy * dy;
-                        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(xi * dx + yi * dy) / len2));
-                        const cx = xi + t * dx, cy = yi + t * dy, d = Math.hypot(cx, cy);
-                        if (d < best.distance) best = { distance: d, point: [lon + cx / (k * 60), lat + cy / 60] };
-                    }
-                    if (inside) return { distance: 0, point: [lon, lat] };
-                }
-                return best;
-            }
-
-            function responsibleFor(f) {
-                if (!f || f.controlling_callsign) return null; // tracked: its controller updates it
-                const at = flightPoint(f);
-                if (!at) return null;
-                const [lon, lat] = at;
-                let best = null;
-                for (const [name, owner] of state.owners) {
-                    if (!state.controllers.get(owner.callsign)?.online) continue;
-                    const shape = state.shapes.get(name);
-                    if (!shape?.boundary?.length) continue;
-                    const near = nearestOnSector(shape, lon, lat);
-                    if (!near.point) continue;
-                    if (!best || near.distance < best.distance || (near.distance === best.distance && name < best.sector)) {
-                        best = { sector: name, owner: owner.callsign, distance: near.distance, from: [lon, lat], to: near.point };
-                    }
-                }
-                return best;
-            }
-
-            // The flight panel's line for it: who keeps this untracked FDR current, and why.
+            // What actually happened rather than a guess: the plugin picks the one controller who can
+            // see the aircraft (FdrSync.ResponsibleSectorForUntracked) and that client names the
+            // sector it holds in each push (authority_sector). This page cannot know whose client can
+            // see what, so it shows who last reported it and how long ago - a report going stale
+            // means nobody who can see the aircraft is updating it.
+            const STALE_AFTER_S = 60;
             function responsibleBlock(f) {
-                if (f.controlling_callsign) return '';
-                const r = responsibleFor(f);
-                if (!r) {
-                    return `<div class="oz-block"><h4>Kept current by</h4><div class="oz-empty" style="padding:2px 0">Nobody - no controller online holds a sector.</div></div>`;
-                }
-                const why = r.distance <= 0.1
-                    ? `inside ${sectorChip(r.sector)}`
-                    : `nearest held sector ${sectorChip(r.sector)} <span style="color:${RESPONSIBLE_COLOUR}">${Math.round(r.distance)} nm</span>`;
-                return `<div class="oz-block"><h4>Kept current by</h4>${controllerChip(r.owner)} ${why}</div>`;
-            }
-
-            function renderResponsible() {
-                const source = map.getSource('responsible');
-                if (!source) return;
-                const sel = state.selection;
-                const f = sel?.kind === 'flight' ? state.flightsByCallsign.get(sel.id) : null;
-                const r = responsibleFor(f);
-                const features = [];
-                // Inside the sector there is no gap to draw; the panel says so instead.
-                if (r && r.distance > 0.1) {
-                    const [a, b] = unwrapLine([r.from, r.to]);
-                    features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [a, b] } });
-                    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: b } });
-                    features.push({
-                        type: 'Feature',
-                        properties: { label: `${r.owner} · ${r.sector} · ${Math.round(r.distance)} nm` },
-                        geometry: { type: 'Point', coordinates: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] },
-                    });
-                }
-                source.setData({ type: 'FeatureCollection', features });
+                if (f.controlling_callsign) return "";
+                const sector = f.authority_sector;
+                const owner = sector ? state.owners.get(sector)?.callsign : null;
+                const age = f.last_seen_at ? (Date.now() - new Date(f.last_seen_at).getTime()) / 1000 : Infinity;
+                const stale = age > STALE_AFTER_S;
+                const who = owner
+                    ? `${controllerChip(owner)} via ${sectorChip(sector)}`
+                    : (sector ? `holder of ${sectorChip(sector)}` : `<span style="color:var(--faint)">unknown</span>`);
+                return `<div class="oz-block"><h4>Kept current by</h4>${who}
+                    <span style="color:${stale ? "var(--warn)" : "var(--muted)"}">· ${f.last_seen_at ? ago(f.last_seen_at) + " ago" : "never"}</span>
+                    ${stale ? `<div class="oz-note-box warn">Not updated for ${ago(f.last_seen_at)} - no connected controller who can see this aircraft is reporting it.</div>` : ""}</div>`;
             }
 
             function setAllRoutes(on) {
@@ -1558,7 +1485,7 @@
             // yet) must not leave every panel after it stale.
             function renderAll() {
                 for (const step of [applySectorStates, renderAircraft, renderAnnotations, renderAtis, renderStats,
-                    renderControllers, renderSectorsTab, renderRequestsTab, renderFlightsTab, renderActivity, renderDetail, renderRoutes, renderResponsible]) {
+                    renderControllers, renderSectorsTab, renderRequestsTab, renderFlightsTab, renderActivity, renderDetail, renderRoutes]) {
                     try { step(); } catch (error) { console.warn(step.name, error); }
                 }
             }
