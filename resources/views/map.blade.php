@@ -144,6 +144,36 @@
             .oz-legend .l-req { width: 14px; border-top: 2px dashed var(--warn); }
             .oz-legend .l-sel { width: 14px; border-top: 2px solid #fff; }
             .oz-legend .l-ho { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--warn); }
+            .oz-legend .l-tri { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c); }
+
+            .oz-filters { border-top: 1px solid var(--line); padding: 8px 10px 2px; }
+            .oz-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+            .oz-filter-row > span { width: 46px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-filter-row > div { display: flex; gap: 4px; flex-wrap: wrap; }
+            .oz-toggle {
+                padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono); cursor: pointer;
+                border: 1px solid rgba(255, 255, 255, 0.14); background: transparent; color: var(--faint);
+            }
+            .oz-toggle.on { background: rgba(133, 133, 133, 0.28); border-color: rgba(200, 200, 200, 0.5); color: var(--text); }
+            .oz-filter-row[data-offline] .oz-toggle.on { background: rgba(71, 85, 105, 0.35); }
+
+            /* Aerodrome counts: activated FDRs not yet departed, and completed ones. */
+            .oz-ad {
+                display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 4px; cursor: pointer;
+                background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(255, 255, 255, 0.12);
+                font-family: var(--mono); font-size: 11px; line-height: 1.2; white-space: nowrap;
+            }
+            .oz-ad b { color: #f1f5f9; }
+            .oz-ad .up { color: #4ade80; }
+            .oz-ad .down { color: #f87171; }
+            .oz-ad.selected { border-color: #fff; }
+            .oz-ad-popup { font-size: 12px; min-width: 240px; max-width: 320px; }
+            .oz-ad-popup h3 { margin: 0 0 6px; font-size: 14px; font-family: var(--mono); }
+            .oz-ad-popup h4 { margin: 8px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+            .oz-ad-popup table { width: 100%; border-collapse: collapse; }
+            .oz-ad-popup td { padding: 2px 4px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; }
+            .oz-ad-popup tr { cursor: pointer; }
+            .oz-ad-popup tr:hover td { background: rgba(255, 255, 255, 0.05); }
 
             /* ---------- markers ---------- */
             /* No position here: Mapbox positions markers absolutely, which also anchors the ::before/::after rings. */
@@ -217,20 +247,29 @@
             </div>
             <div class="oz-tab-body" data-body="activity" id="oz-activity" hidden></div>
 
+            <div class="oz-filters" id="oz-filters">
+                <div class="oz-filter-row"><span>Online</span><div data-filter-group="online"></div></div>
+                <div class="oz-filter-row"><span>Offline</span><div data-filter-group="offline"></div></div>
+            </div>
             <div class="oz-layers" id="oz-layers">
-                <label><input type="checkbox" data-layer="unstaffed" checked> Unstaffed outlines</label>
-                <label><input type="checkbox" data-layer="labels" checked> Sector labels</label>
-                <label><input type="checkbox" data-layer="aircraft" checked> Aircraft</label>
+                <label><input type="checkbox" data-layer="labels"> Sector labels</label>
+                <label><input type="checkbox" data-layer="aircraft"> Aircraft</label>
                 <label><input type="checkbox" data-layer="acLabels"> Callsigns</label>
-                <label><input type="checkbox" data-layer="requests" checked> Requests</label>
-                <label><input type="checkbox" data-layer="annotations" checked> Notes &amp; drawings</label>
-                <label><input type="checkbox" data-layer="atis" checked> ATIS</label>
+                <label><input type="checkbox" data-layer="aerodromes"> Departures / completed</label>
+                <label><input type="checkbox" data-layer="requests"> Requests</label>
+                <label><input type="checkbox" data-layer="annotations"> Notes &amp; drawings</label>
+                <label><input type="checkbox" data-layer="atis"> ATIS</label>
             </div>
             <div class="oz-legend">
-                <span><i class="oz-swatch" style="--c:#22d3ee"></i>Colour = controller</span>
+                <span><i class="oz-swatch" style="--c:rgb(133,133,133)"></i>Online</span>
+                <span><i class="oz-swatch" style="--c:#22d3ee"></i>Highlighted</span>
                 <span><i class="l-sel"></i>Selected</span>
                 <span><i class="l-req"></i>Requested</span>
-                <span><i class="l-ho"></i>Handoff in progress</span>
+                <span><i class="l-tri" style="--c:#16a34a"></i>Owned tag</span>
+                <span><i class="l-tri" style="--c:#94a3b8"></i>No owner</span>
+                <span><b style="color:#4ade80">▲</b>Awaiting departure</span>
+                <span><b style="color:#f87171">▼</b>Completed</span>
+                <span><i class="l-ho"></i>Handoff</span>
             </div>
         </aside>
 
@@ -260,7 +299,50 @@
 
             const TYPE_RANK = { FMP: 0, CTR: 1, FSS: 1, APP: 2, DEP: 2, TWR: 3, GND: 4, DEL: 4 };
             const UNSTAFFED_COLOUR = '#475569';
+            const INFILL_COLOUR = 'rgb(133, 133, 133)'; // vatSys's own "Infill" (Colours.xml) - an online sector
+            const HIGHLIGHT_COLOUR = '#22d3ee';
             const REQUEST_COLOUR = '#fb923c';
+            const TRACKED_COLOUR = '#16a34a';   // a tag someone owns
+            const UNTRACKED_COLOUR = '#94a3b8'; // a tag coasting with no owner (kept current by its data authority)
+
+            // The map's position filters: which kinds of sector are drawn, separately for online
+            // (someone holds it) and offline. Categories follow the controller positions, not the
+            // dataset's raw types.
+            const CATEGORY_OF_TYPE = { DEL: 'ADC', GND: 'ADC', TWR: 'ADC', APP: 'APP', DEP: 'DEP', CTR: 'ENR', FSS: 'ENR', FMP: 'FMP' };
+            const CATEGORIES = [
+                { id: 'ADC', label: 'ADC', title: 'Aerodrome: DEL, GND, TWR' },
+                { id: 'APP', label: 'APP', title: 'Approach' },
+                { id: 'DEP', label: 'DEP', title: 'Departures' },
+                { id: 'ENR', label: 'ENR', title: 'En route: CTR, FSS' },
+                { id: 'FMP', label: 'FMP', title: 'Flow' },
+            ];
+            const categoryOf = (type) => CATEGORY_OF_TYPE[type] ?? 'ENR';
+
+            // Saved in a cookie so a returning visitor gets the same map back.
+            const PREFS_COOKIE = 'oz_ops_prefs';
+            const DEFAULT_PREFS = {
+                layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, annotations: true, atis: true },
+                online: { ADC: true, APP: true, DEP: true, ENR: true, FMP: true },
+                offline: { ADC: false, APP: false, DEP: false, ENR: true, FMP: false },
+            };
+            function loadPrefs() {
+                try {
+                    const raw = document.cookie.split('; ').find((c) => c.startsWith(PREFS_COOKIE + '='));
+                    const saved = raw ? JSON.parse(decodeURIComponent(raw.slice(PREFS_COOKIE.length + 1))) : {};
+                    return {
+                        layers: { ...DEFAULT_PREFS.layers, ...(saved.layers ?? {}) },
+                        online: { ...DEFAULT_PREFS.online, ...(saved.online ?? {}) },
+                        offline: { ...DEFAULT_PREFS.offline, ...(saved.offline ?? {}) },
+                    };
+                } catch {
+                    return structuredClone(DEFAULT_PREFS);
+                }
+            }
+            function savePrefs() {
+                const value = encodeURIComponent(JSON.stringify({ layers: state.layers, online: state.online, offline: state.offline }));
+                document.cookie = `${PREFS_COOKIE}=${value}; max-age=${60 * 60 * 24 * 365}; path=/; SameSite=Lax`;
+            }
+            const prefs = loadPrefs();
 
             const state = {
                 shapes: new Map(),          // sector name -> { name, full_name, type, callsign, frequency, responsible_sectors, bbox, drawn, rank }
@@ -273,7 +355,9 @@
                 atis: [],
                 vatsimControllers: [],
                 selection: null,            // { kind: 'controller'|'sector'|'flight'|'request', id }
-                layers: { unstaffed: true, labels: true, aircraft: true, acLabels: false, requests: true, annotations: true, atis: true },
+                layers: prefs.layers,
+                online: prefs.online,
+                offline: prefs.offline,
                 feed: [],
                 unseenFeed: 0,
                 activeTab: 'controllers',
@@ -325,7 +409,7 @@
             }
 
             function controllerChip(callsign, extraClass = '') {
-                if (!callsign) return '<span class="oz-chip plain">untracked</span>';
+                if (!callsign) return '<span class="oz-chip plain">no owner</span>';
                 return `<button class="oz-chip ${extraClass}" style="--c:${colourFor(callsign)}" data-select="controller:${esc(callsign)}">${esc(callsign)}</button>`;
             }
             function sectorChip(name, extraClass = '') {
@@ -437,20 +521,38 @@
                 }
                 map.addSource('sectors', { type: 'geojson', data, promoteId: 'name' });
 
+                // Every sector's look is driven by feature-state set in applySectorStates: owned,
+                // show (passes the position filters), hl/dim/sel (selection) and req (requested).
+                // A sector the filters hide draws nothing at all, whatever else is true of it.
                 const fs = (key) => ['boolean', ['feature-state', key], false];
+                const hidden = ['!', fs('show')];
                 map.addLayer({
                     id: 'sectors-fill', type: 'fill', source: 'sectors',
                     paint: {
                         'fill-color': ['coalesce', ['feature-state', 'colour'], UNSTAFFED_COLOUR],
                         'fill-opacity': ['case',
+                            hidden, 0,
                             fs('sel'), 0.5,
-                            fs('hl'), 0.38,
-                            fs('dim'), ['case', fs('owned'), 0.05, 0],
-                            fs('owned'), 0.2,
+                            fs('hl'), 0.4,
+                            fs('dim'), ['case', fs('owned'), 0.12, 0],
+                            fs('owned'), 0.35,
                             0],
                     },
                 });
-                map.addLayer({ id: 'sectors-line', type: 'line', source: 'sectors', paint: sectorLinePaint() });
+                map.addLayer({
+                    id: 'sectors-line', type: 'line', source: 'sectors',
+                    paint: {
+                        'line-color': ['case', fs('hl'), ['coalesce', ['feature-state', 'colour'], HIGHLIGHT_COLOUR],
+                            fs('owned'), '#a3a3a3', '#334155'],
+                        'line-width': ['case', fs('hl'), 2.2, fs('owned'), 1.1, 0.6],
+                        'line-opacity': ['case',
+                            hidden, 0,
+                            fs('hl'), 1,
+                            fs('dim'), ['case', fs('owned'), 0.35, 0.25],
+                            fs('owned'), 0.85,
+                            0.5],
+                    },
+                });
                 map.addLayer({
                     id: 'sectors-requested', type: 'line', source: 'sectors',
                     paint: {
@@ -469,9 +571,9 @@
                         'symbol-sort-key': ['-', 10, ['get', 'rank']],
                     },
                     paint: {
-                        'text-color': ['case', fs('owned'), ['coalesce', ['feature-state', 'colour'], '#cbd5e1'], '#94a3b8'],
+                        'text-color': ['case', fs('hl'), ['coalesce', ['feature-state', 'colour'], HIGHLIGHT_COLOUR], fs('owned'), '#e5e5e5', '#94a3b8'],
                         'text-halo-color': '#020617', 'text-halo-width': 1.2,
-                        'text-opacity': ['case', fs('sel'), 1, fs('hl'), 1, fs('dim'), 0, fs('owned'), 0.9, 0],
+                        'text-opacity': ['case', hidden, 0, fs('sel'), 1, fs('hl'), 1, fs('dim'), 0, fs('owned'), 0.9, 0],
                     },
                 });
 
@@ -487,19 +589,14 @@
                 map.on('mouseleave', 'sectors-fill', () => { map.getCanvas().style.cursor = ''; });
             }
 
-            function sectorLinePaint() {
-                const fs = (key) => ['boolean', ['feature-state', key], false];
-                const unstaffed = state.layers.unstaffed;
-                return {
-                    'line-color': ['case', fs('owned'), ['coalesce', ['feature-state', 'colour'], UNSTAFFED_COLOUR],
-                        fs('hl'), ['coalesce', ['feature-state', 'colour'], '#94a3b8'], '#334155'],
-                    'line-width': ['case', fs('hl'), 2.2, fs('owned'), 1.1, 0.6],
-                    'line-opacity': ['case',
-                        fs('hl'), 1,
-                        fs('dim'), ['case', fs('owned'), 0.3, unstaffed ? 0.25 : 0],
-                        fs('owned'), 0.85,
-                        unstaffed ? 0.5 : 0],
-                };
+            // Whether the position filters draw this sector. Anything the current selection lights
+            // up is always drawn - choosing a controller should show all of their airspace even if
+            // its kind is filtered out.
+            function sectorShown(name, focus = selectionFocus()) {
+                if (focus?.sectors.has(name) || focus?.selected === name) return true;
+                const shape = state.shapes.get(name);
+                const filters = state.owners.has(name) ? state.online : state.offline;
+                return !!filters[categoryOf(shape?.type)];
             }
 
             // Overlapping airspace (an approach sector inside the en-route sector above it) means a
@@ -507,7 +604,9 @@
             // (tower over approach over en-route), then the smallest - and offer the rest in the panel.
             function onMapClick(e) {
                 const hits = map.queryRenderedFeatures(e.point, { layers: ['sectors-fill'] });
-                const names = [...new Set(hits.map((f) => f.properties.name))].filter((n) => state.shapes.has(n));
+                const focus = selectionFocus();
+                const names = [...new Set(hits.map((f) => f.properties.name))]
+                    .filter((n) => state.shapes.has(n) && sectorShown(n, focus));
                 if (!names.length) { select(null); return; }
                 names.sort((a, b) => {
                     const sa = state.shapes.get(a), sb = state.shapes.get(b);
@@ -549,11 +648,10 @@
                     const shape = state.shapes.get(sel.id);
                     return { sectors: new Set([sel.id, ...(shape?.responsible_sectors ?? [])]), controller: null, selected: sel.id };
                 }
+                // A flight is shown on its own: selecting one marks the aircraft and opens its panel,
+                // but leaves the airspace picture alone - no controller's sectors light up or dim.
                 if (sel.kind === 'flight') {
-                    const f = state.flightsByCallsign.get(sel.id);
-                    const c = f?.controlling_callsign ? state.controllers.get(f.controlling_callsign) : null;
-                    const sectors = new Set(c?.sectors ?? []);
-                    return { sectors, controller: f?.controlling_callsign ?? null, selected: f?.current_sector ?? null, flight: sel.id };
+                    return { sectors: new Set(), controller: null, selected: null, flight: sel.id, noDim: true };
                 }
                 if (sel.kind === 'request') {
                     const rows = (state.ops?.requests ?? []).filter((r) => r.group_id === sel.id);
@@ -568,7 +666,8 @@
                 if (!focus) return;
                 if (state.selection.kind === 'flight') {
                     const f = state.flightsByCallsign.get(state.selection.id);
-                    if (f && Number.isFinite(f.lon)) map.easeTo({ center: [f.lon, f.lat], zoom: Math.max(map.getZoom(), 6), duration: 700 });
+                    const point = f ? flightPoint(f) : null;
+                    if (point) map.easeTo({ center: point, zoom: Math.max(map.getZoom(), 6), duration: 700 });
                     return;
                 }
                 const names = state.selection.kind === 'sector' && !state.owners.has(state.selection.id)
@@ -611,9 +710,10 @@
                     const hl = !!focus && focus.sectors.has(name);
                     const next = {
                         owned: !!owner,
-                        colour: hl && focus.colour ? focus.colour : (owner ? colourFor(owner.callsign) : UNSTAFFED_COLOUR),
+                        show: sectorShown(name, focus),
+                        colour: hl ? (focus.colour ?? HIGHLIGHT_COLOUR) : (owner ? INFILL_COLOUR : UNSTAFFED_COLOUR),
                         hl,
-                        dim: !!focus && !hl,
+                        dim: !!focus && !focus.noDim && !hl,
                         sel: !!focus && focus.selected === name,
                         req: requested.has(name),
                     };
@@ -628,10 +728,110 @@
                 return `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 14,16 8,12 2,16" fill="${colour}" stroke="#020617" stroke-width="0.8"/></svg>`;
             }
 
+            // Where an FDR belongs on the map:
+            //  - completed (STATE_FINISHED): counted at its destination aerodrome (red ▼);
+            //  - activated but not departed: counted at its departure aerodrome (green ▲) - no ATD
+            //    yet and still on the ground (or with no evidence it is airborne);
+            //  - otherwise airborne: an aircraft tag at its position, dark green if someone owns
+            //    the tag, grey if it is coasting with no owner.
+            function flightCategory(f) {
+                if (f.state === 'STATE_FINISHED') return 'completed';
+                if (!f.atd && f.dep_airport) {
+                    if (f.on_ground === true) return 'pending';
+                    if (f.on_ground == null && !((f.altitude ?? 0) > 1500) && !((f.ground_speed ?? 0) > 60)) return 'pending';
+                    if (!Number.isFinite(f.lat)) return 'pending';
+                }
+                return 'airborne';
+            }
+            function aerodromePoint(f, which) {
+                const lat = which === 'dep' ? f.dep_lat : f.des_lat;
+                const lon = which === 'dep' ? f.dep_lon : f.des_lon;
+                if (Number.isFinite(lat) && Number.isFinite(lon)) return [lon, lat];
+                return Number.isFinite(f.lat) && Number.isFinite(f.lon) ? [f.lon, f.lat] : null;
+            }
+            // Where the map shows this flight - for flying to it from a list.
+            function flightPoint(f) {
+                const category = flightCategory(f);
+                if (category === 'pending') return aerodromePoint(f, 'dep');
+                if (category === 'completed') return aerodromePoint(f, 'des');
+                return Number.isFinite(f.lat) && Number.isFinite(f.lon) ? [f.lon, f.lat] : null;
+            }
+
+            function flightColour(f) {
+                const category = flightCategory(f);
+                if (category === 'pending') return '#4ade80';
+                if (category === 'completed') return '#f87171';
+                return f.controlling_callsign ? TRACKED_COLOUR : UNTRACKED_COLOUR;
+            }
+            function categoryBadge(f) {
+                const category = flightCategory(f);
+                if (category === 'pending') return '<span class="oz-badge good">▲ awaiting dep</span>';
+                if (category === 'completed') return '<span class="oz-badge bad">▼ completed</span>';
+                return '';
+            }
+
+            const aerodromeMarkers = new Map(); // ICAO -> { marker, el, popup }
+
+            function aerodromePopupHtml(icao, pending, completed) {
+                const row = (f, cells) => `<tr data-select="flight:${esc(f.callsign)}">${cells.map((c) => `<td>${esc(c ?? '')}</td>`).join('')}</tr>`;
+                const squawk = (f) => f.assigned_ssr_code != null ? String(f.assigned_ssr_code).padStart(4, '0') : '';
+                return `<div class="oz-ad-popup"><h3>${esc(icao)}</h3>
+                    ${pending.length ? `<h4><span style="color:#4ade80">▲</span> Awaiting departure (${pending.length})</h4>
+                        <table>${pending.map((f) => row(f, [f.callsign, f.aircraft_type, '→ ' + (f.des_airport ?? '????'),
+                            [f.sid_star_string, f.runway_string ?? f.departure_runway].filter(Boolean).join(' '),
+                            squawk(f), f.etd ? 'ETD ' + hhmm(f.etd) : '', f.controlling_callsign ?? 'no owner'])).join('')}</table>` : ''}
+                    ${completed.length ? `<h4><span style="color:#f87171">▼</span> Completed (${completed.length})</h4>
+                        <table>${completed.map((f) => row(f, [f.callsign, f.aircraft_type, 'from ' + (f.dep_airport ?? '????'),
+                            f.atd ? 'ATD ' + hhmm(f.atd) : ''])).join('')}</table>` : ''}
+                </div>`;
+            }
+
+            function renderAerodromes() {
+                const focus = selectionFocus();
+                const groups = new Map(); // ICAO -> { point, pending: [], completed: [] }
+                for (const f of state.flights) {
+                    const category = flightCategory(f);
+                    if (category === 'airborne') continue;
+                    const icao = category === 'pending' ? f.dep_airport : f.des_airport;
+                    const point = aerodromePoint(f, category === 'pending' ? 'dep' : 'des');
+                    if (!icao || !point) continue;
+                    if (!groups.has(icao)) groups.set(icao, { point, pending: [], completed: [] });
+                    groups.get(icao)[category].push(f);
+                }
+
+                for (const [icao, group] of groups) {
+                    let entry = aerodromeMarkers.get(icao);
+                    if (!entry) {
+                        const el = document.createElement('div');
+                        el.className = 'oz-ad';
+                        const popup = new mapboxgl.Popup({ offset: 12, maxWidth: '340px' });
+                        const marker = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [8, 0] }).setPopup(popup);
+                        entry = { marker, el, popup };
+                        aerodromeMarkers.set(icao, entry);
+                    }
+                    const sortByCallsign = (a, b) => a.callsign.localeCompare(b.callsign);
+                    group.pending.sort(sortByCallsign);
+                    group.completed.sort(sortByCallsign);
+                    entry.el.innerHTML = `<b>${esc(icao)}</b>`
+                        + (group.pending.length ? `<span class="up">▲${group.pending.length}</span>` : '')
+                        + (group.completed.length ? `<span class="down">▼${group.completed.length}</span>` : '');
+                    entry.el.classList.toggle('selected', !!focus?.flight
+                        && [...group.pending, ...group.completed].some((f) => f.callsign === focus.flight));
+                    entry.popup.setHTML(aerodromePopupHtml(icao, group.pending, group.completed));
+                    entry.marker.setLngLat(group.point);
+                    if (state.layers.aerodromes) entry.marker.addTo(map); else entry.marker.remove();
+                }
+                for (const [icao, entry] of aerodromeMarkers) {
+                    if (!groups.has(icao)) { entry.marker.remove(); aerodromeMarkers.delete(icao); }
+                }
+            }
+
             function renderAircraft() {
+                renderAerodromes();
                 const focus = selectionFocus();
                 const seen = new Set();
                 for (const flight of state.flights) {
+                    if (flightCategory(flight) !== 'airborne') continue;
                     if (!Number.isFinite(flight.lat) || !Number.isFinite(flight.lon)) continue;
                     seen.add(flight.callsign);
                     let entry = aircraftMarkers.get(flight.callsign);
@@ -646,7 +846,7 @@
                         entry = { marker, el, colour: null };
                         aircraftMarkers.set(flight.callsign, entry);
                     }
-                    const colour = flight.controlling_callsign ? colourFor(flight.controlling_callsign) : '#94a3b8';
+                    const colour = flight.controlling_callsign ? TRACKED_COLOUR : UNTRACKED_COLOUR;
                     if (entry.colour !== colour) {
                         entry.el.innerHTML = aircraftSvg(colour) + `<span class="oz-ac-label"></span>`;
                         entry.colour = colour;
@@ -656,7 +856,7 @@
                     label.style.setProperty('--c', colour);
                     entry.el.querySelector('svg').style.transform = `rotate(${flight.heading ?? 0}deg)`;
 
-                    entry.el.title = `${flight.callsign}${flight.controlling_callsign ? ' - ' + flight.controlling_callsign : ' - untracked'}`;
+                    entry.el.title = `${flight.callsign}${flight.controlling_callsign ? ' - ' + flight.controlling_callsign : ' - no owner'}`;
                     entry.el.classList.toggle('handover', isHandover(flight.state));
                     entry.el.classList.toggle('selected', focus?.flight === flight.callsign);
                     entry.el.classList.toggle('dim', !!focus && !focus.flight && focus.controller !== flight.controlling_callsign
@@ -759,14 +959,19 @@
                 const ops = state.ops;
                 const pending = (ops?.requests ?? []).filter((r) => !r.rejected_at);
                 const pendingGroups = new Set(pending.map((r) => r.group_id)).size;
-                const tracked = state.flights.filter((f) => f.controlling_callsign).length;
+                const airborne = state.flights.filter((f) => flightCategory(f) === 'airborne');
+                const tracked = airborne.filter((f) => f.controlling_callsign).length;
+                const awaiting = state.flights.filter((f) => flightCategory(f) === 'pending').length;
+                const completed = state.flights.filter((f) => flightCategory(f) === 'completed').length;
                 const handovers = state.flights.filter((f) => isHandover(f.state)).length;
                 const totalDrawn = [...state.shapes.values()].filter((s) => s.drawn).length;
                 document.getElementById('oz-stats').innerHTML = [
                     ['ATC on OzServer', ops?.controllers?.length ?? 0],
                     ['Sectors held', `${ops?.ownerships?.length ?? 0}<span style="color:var(--faint);font-size:11px">/${totalDrawn}</span>`],
                     ['Pending requests', pendingGroups, pendingGroups ? 'warn' : ''],
-                    ['Flights tracked', `${tracked}<span style="color:var(--faint);font-size:11px">/${state.flights.length}</span>`],
+                    ['Tags owned', `${tracked}<span style="color:var(--faint);font-size:11px">/${airborne.length} airborne</span>`],
+                    ['Awaiting dep', `<span style="color:#4ade80">▲${awaiting}</span>`],
+                    ['Completed', `<span style="color:#f87171">▼${completed}</span>`],
                     ['Handoffs', handovers, handovers ? 'warn' : ''],
                 ].map(([label, value, cls]) => `<div class="oz-stat ${cls ?? ''}"><b>${value}</b><small>${label}</small></div>`).join('');
 
@@ -888,19 +1093,19 @@
                     const selected = state.selection?.kind === 'flight' && state.selection.id === f.callsign;
                     return `
                         <button class="oz-row ${selected ? 'selected' : ''}" data-select="flight:${esc(f.callsign)}">
-                            <i class="oz-swatch" style="--c:${f.controlling_callsign ? colourFor(f.controlling_callsign) : '#334155'}"></i>
+                            <i class="oz-swatch" style="--c:${flightColour(f)}"></i>
                             <div class="oz-main">
-                                <div class="oz-title">${esc(f.callsign)} ${isHandover(f.state) ? '<span class="oz-badge warn">handoff</span>' : ''}</div>
+                                <div class="oz-title">${esc(f.callsign)} ${categoryBadge(f)} ${isHandover(f.state) ? '<span class="oz-badge warn">handoff</span>' : ''}</div>
                                 <div class="oz-sub">${esc(f.aircraft_type ?? '')} ${esc(f.dep_airport ?? '????')}→${esc(f.des_airport ?? '????')}</div>
                             </div>
-                            <div class="oz-right">${esc(f.controlling_callsign ?? 'untracked')}<br>${f.altitude != null ? esc(f.altitude) + 'ft' : ''}</div>
+                            <div class="oz-right">${esc(f.controlling_callsign ?? 'no owner')}<br>${flightCategory(f) === 'airborne' && f.altitude != null ? esc(f.altitude) + 'ft' : ''}</div>
                         </button>`;
                 }).join('');
                 document.getElementById('oz-flights').innerHTML = html || '<div class="oz-empty">No flights.</div>';
             }
 
             const FEED_ICONS = { claim: '🟢', release: '⚪', transfer: '🔁', request: '🟠', accept: '✅', reject: '⛔', withdraw: '↩️',
-                handoff: '✈️', offer: '📡', quiet: '⚠️', back: '🟢', note: '📝', atis: 'ℹ️' };
+                handoff: '✈️', offer: '📡', depart: '🛫', complete: '🛬', quiet: '⚠️', back: '🟢', note: '📝', atis: 'ℹ️' };
 
             function renderActivity() {
                 const html = state.feed.map((item) => `
@@ -933,7 +1138,7 @@
                 ].filter(([, v]) => v);
                 return `
                     <div class="oz-detail-head">
-                        <i class="oz-swatch" style="--c:${colourFor(f.controlling_callsign)}"></i>
+                        <i class="oz-swatch" style="--c:${flightColour(f)}"></i>
                         <div><div class="oz-kind">Flight</div><h2>${esc(f.callsign)}</h2></div>
                         <button class="oz-close" data-close>×</button>
                     </div>
@@ -1193,6 +1398,12 @@
                     } else if (!isHandover(old.state) && isHandover(f.state)) {
                         pushFeed('offer', `${cs(f.controlling_callsign ?? '?')} is handing off ${b(f.callsign)}`, `flight:${f.callsign}`);
                     }
+                    const before = flightCategory(old), after = flightCategory(f);
+                    if (before === 'pending' && after === 'airborne') {
+                        pushFeed('depart', `${b(f.callsign)} departed ${b(f.dep_airport ?? '????')}`, `flight:${f.callsign}`);
+                    } else if (before !== 'completed' && after === 'completed') {
+                        pushFeed('complete', `${b(f.callsign)} completed at ${b(f.des_airport ?? '????')}`, `flight:${f.callsign}`);
+                    }
                 }
             }
 
@@ -1353,21 +1564,49 @@
                 if (event.key === 'Escape' && !event.target.closest('input')) select(null);
             });
 
+            // Layer checkboxes and position filters both start from the saved preferences, and every
+            // change is written straight back to the cookie.
+            for (const input of document.querySelectorAll('#oz-layers [data-layer]')) {
+                input.checked = !!state.layers[input.dataset.layer];
+            }
+            document.body.classList.toggle('show-ac-labels', !!state.layers.acLabels);
+
+            function renderFilters() {
+                for (const group of ['online', 'offline']) {
+                    const holder = document.querySelector(`[data-filter-group="${group}"]`);
+                    holder.parentElement.toggleAttribute('data-offline', group === 'offline');
+                    holder.innerHTML = CATEGORIES.map((c) => `<button type="button" class="oz-toggle ${state[group][c.id] ? 'on' : ''}"
+                        data-filter="${group}:${c.id}" title="${esc(c.title)} - ${group} sectors">${esc(c.label)}</button>`).join('');
+                }
+            }
+            renderFilters();
+
+            document.getElementById('oz-filters').addEventListener('click', (event) => {
+                const button = event.target.closest('[data-filter]');
+                if (!button) return;
+                const [group, category] = button.dataset.filter.split(':');
+                state[group][category] = !state[group][category];
+                savePrefs();
+                renderFilters();
+                applySectorStates();
+            });
+
             document.getElementById('oz-layers').addEventListener('change', (event) => {
                 const layer = event.target.dataset.layer;
                 if (!layer) return;
                 state.layers[layer] = event.target.checked;
-                if (layer === 'unstaffed' && map.getLayer('sectors-line')) {
-                    const paint = sectorLinePaint();
-                    for (const [k, v] of Object.entries(paint)) map.setPaintProperty('sectors-line', k, v);
-                }
-                if (layer === 'labels' && map.getLayer('sectors-label')) {
-                    map.setLayoutProperty('sectors-label', 'visibility', state.layers.labels ? 'visible' : 'none');
-                }
-                if (layer === 'acLabels') document.body.classList.toggle('show-ac-labels', state.layers.acLabels);
+                savePrefs();
+                applyLayerVisibility();
                 if (layer === 'requests') lastSectorStates.clear();
                 renderAll();
             });
+
+            function applyLayerVisibility() {
+                document.body.classList.toggle('show-ac-labels', !!state.layers.acLabels);
+                if (map.getLayer('sectors-label')) {
+                    map.setLayoutProperty('sectors-label', 'visibility', state.layers.labels ? 'visible' : 'none');
+                }
+            }
 
             // Keep the "ago" timers in the panels moving between data updates.
             setInterval(() => {
@@ -1398,6 +1637,7 @@
 
                 await styleReady;
                 loadShapes(shapes);
+                applyLayerVisibility();
                 renderAll();
                 if (state.selection) flyToSelection();
             })();
