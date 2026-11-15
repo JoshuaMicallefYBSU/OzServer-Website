@@ -203,10 +203,15 @@
             }
             @keyframes oz-pulse { from { opacity: 1; transform: scale(0.8); } to { opacity: 0; transform: scale(1.6); } }
 
+            /* Dark red: the ATIS station is connected to the network right now. Light grey (.saved): the
+               station has gone and this is the last ATIS the server still holds for the airport. */
             .oz-atis-marker {
-                width: 22px; height: 22px; border-radius: 50%; background: #1e293b; border: 2px solid #a78bfa; color: #c4b5fd;
+                width: 22px; height: 22px; border-radius: 50%; background: #7f1d1d; border: 2px solid #b91c1c; color: #fee2e2;
                 display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; cursor: pointer;
             }
+            .oz-atis-marker.saved { background: #cbd5e1; border-color: #94a3b8; color: #1e293b; }
+            .oz-legend .l-atis { width: 9px; height: 9px; border-radius: 50%; background: #7f1d1d; border: 2px solid #b91c1c; }
+            .oz-legend .l-atis.saved { background: #cbd5e1; border-color: #94a3b8; }
 
             .mapboxgl-popup-content { background: #0f172a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
             .mapboxgl-popup-tip { display: none; }
@@ -272,6 +277,8 @@
                 <span><i class="l-tri" style="--c:#16a34a"></i>Owned tag</span>
                 <span><i class="l-tri" style="--c:#94a3b8"></i>No owner</span>
                 <span><i class="l-box"></i>Not coupled</span>
+                <span><i class="l-atis"></i>ATIS on air</span>
+                <span><i class="l-atis saved"></i>ATIS saved, station offline</span>
                 <span><b style="color:#4ade80">▲</b>Awaiting departure</span>
                 <span><b style="color:#f87171">▼</b>Completed</span>
                 <span><i class="l-ho"></i>Handoff</span>
@@ -1093,7 +1100,7 @@
                     : Object.entries(atis.content ?? {}).filter(([, v]) => v !== null && v !== '')
                         .map(([k, v]) => `<p style="margin:2px 0"><strong>${changed.has(k) ? '+' : ''}${esc(k)}:</strong> ${esc(v)}</p>`).join('');
                 return `<div style="max-width:260px;font-size:12px"><h3 style="margin:0 0 4px;font-size:14px">${esc(atis.icao)} ATIS ${esc(atis.atis_letter)}</h3>
-                    ${atis.frequency ? `<p style="margin:2px 0;color:#94a3b8">${esc(atis.frequency)} MHz</p>` : ''}${body}
+                    ${atis.frequency ? `<p style="margin:2px 0;color:#94a3b8">${esc(atis.frequency)} MHz</p>` : ''}${atis.connected === false ? `<p style="margin:2px 0;color:#94a3b8"><em>Station offline - last ATIS saved on OzServer</em></p>` : ''}${body}
                     ${atis.issued ? `<p style="margin:4px 0 0;color:#64748b">Issued ${esc(atis.issued)}</p>` : ''}</div>`;
             }
 
@@ -1109,6 +1116,9 @@
                         atisMarkers.set(atis.icao, marker);
                     }
                     marker.getElement().textContent = atis.atis_letter;
+                    // Only an explicit false is "saved": an API that does not say (an older deploy) keeps
+                    // every marker drawn as on air rather than greying the whole map out.
+                    marker.getElement().classList.toggle('saved', atis.connected === false);
                     marker.setLngLat([atis.lon, atis.lat]);
                     marker.getPopup().setHTML(atisPopupHtml(atis));
                     setMarkerVisible(marker, state.layers.atis);
