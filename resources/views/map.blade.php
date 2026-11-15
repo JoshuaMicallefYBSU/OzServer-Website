@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>OzServer | Ops</title>
+        <title>OzServer | Live Map</title>
         <meta name="mapbox-token" content="{{ config('services.mapbox.token') }}">
         <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
         <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
@@ -224,7 +224,7 @@
         <div id="map"></div>
 
         <header class="oz-panel oz-topbar">
-            <div class="oz-brand">Oz<span>Server</span> Ops</div>
+            <a href="/" class="oz-brand" style="text-decoration:none">Oz<span>Server</span> Live Map</a>
             <select id="oz-server-select" aria-label="Server"></select>
             <div class="oz-stats" id="oz-stats"></div>
             <button type="button" class="oz-btn" id="oz-routes-btn" title="Draw every flight's route as vatSys parsed it">Show all routes</button>
@@ -460,6 +460,10 @@
                 center: [134, -27],
                 zoom: 3.6,
                 attributionControl: false,
+                // Shift is ours: Shift+click picks up offline sectors (see onMapClick). Mapbox's
+                // box zoom also starts on Shift+mousedown and swallows the click that follows, so
+                // with it on, Shift+click never reached the map at all.
+                boxZoom: false,
             });
             // North-up only: aircraft icons are rotated by heading in CSS rather than by the marker,
             // so their callsign labels stay level.
