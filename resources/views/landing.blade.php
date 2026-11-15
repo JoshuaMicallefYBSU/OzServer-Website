@@ -180,7 +180,7 @@
 
             <section id="live-network" class="mt-20">
                 <h2 class="text-2xl font-semibold text-white">Live network</h2>
-                <p class="mt-2 text-sm leading-6 text-slate-300">Pulled straight from the API that backs the <a href="/ops" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">live map</a>.</p>
+                <p class="mt-2 text-sm leading-6 text-slate-300">Pulled straight from the API that backs the <a href="/live-map" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">live map</a>.</p>
                 <div class="mt-6 grid gap-6 sm:grid-cols-2">
                     <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                         <p class="text-sm text-slate-400">Controllers connected</p>
@@ -229,7 +229,7 @@
                     </article>
                     <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
                         <h3 class="text-lg font-semibold text-white">Real-time map</h3>
-                        <p class="mt-2 text-sm leading-6 text-slate-300">The <a href="/ops" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">/ops map</a> streams sector, aircraft and ATIS changes over Server-Sent Events, falling back to a 15-second poll for anything that can't hold a long-lived connection.</p>
+                        <p class="mt-2 text-sm leading-6 text-slate-300">The <a href="/live-map" class="text-cyan-300 underline decoration-cyan-300/30 underline-offset-4 hover:decoration-cyan-300">/ops map</a> streams sector, aircraft and ATIS changes over Server-Sent Events, falling back to a 15-second poll for anything that can't hold a long-lived connection.</p>
                     </article>
                     <article class="rounded-2xl border border-white/10 bg-white/5 p-6">
                         <h3 class="text-lg font-semibold text-white">Identity</h3>

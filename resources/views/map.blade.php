@@ -207,12 +207,6 @@
                 width: 22px; height: 22px; border-radius: 50%; background: #1e293b; border: 2px solid #a78bfa; color: #c4b5fd;
                 display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; cursor: pointer;
             }
-            .oz-note-marker {
-                max-width: 180px; padding: 4px 7px; border-radius: 6px; font-size: 11px; line-height: 1.3; cursor: pointer;
-                background: rgba(15, 23, 42, 0.92); border-left: 3px solid var(--c, #f472b6); color: var(--text);
-                white-space: pre-wrap; word-break: break-word;
-            }
-            .oz-note-marker small { display: block; color: var(--faint); font-family: var(--mono); font-size: 9px; }
 
             .mapboxgl-popup-content { background: #0f172a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
             .mapboxgl-popup-tip { display: none; }
@@ -263,11 +257,11 @@
             </div>
             <div class="oz-layers" id="oz-layers">
                 <label><input type="checkbox" data-layer="labels"> Sector labels</label>
+                <label><input type="checkbox" data-layer="boundaryPoints"> Sector crossings</label>
                 <label><input type="checkbox" data-layer="aircraft"> Aircraft</label>
                 <label><input type="checkbox" data-layer="acLabels"> Callsigns</label>
                 <label><input type="checkbox" data-layer="aerodromes"> Departures / completed</label>
                 <label><input type="checkbox" data-layer="requests"> Requests</label>
-                <label><input type="checkbox" data-layer="annotations"> Notes &amp; drawings</label>
                 <label><input type="checkbox" data-layer="atis"> ATIS</label>
             </div>
             <div class="oz-legend">
@@ -290,11 +284,11 @@
             // ------------------------------------------------------------------------------------
             // OzServer Ops - a read-only picture of what the vatSys plugin is coordinating: who
             // holds which sectors, the requests between controllers, which controller each flight
-            // is with, and the shared notes/drawings. Nothing here can change anything; all of it
+            // is with. Nothing here can change anything; all of it
             // is acted on from vatSys.
             //
             // Data: /map/sector-shapes once (geometry), then /map/ops (ownership, controllers,
-            // requests, annotations), /map/aircraft, /map/atis and /map/controllers - re-read on
+            // requests), /map/aircraft, /map/atis and /map/controllers - re-read on
             // the API's SSE signals, with a slow poll underneath in case the stream is unavailable.
             // ------------------------------------------------------------------------------------
             const apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
@@ -331,8 +325,15 @@
 
             // Saved in a cookie so a returning visitor gets the same map back.
             const PREFS_COOKIE = 'oz_ops_prefs';
+            // vatSys inserts a point wherever a route crosses a sector boundary, named Z + the
+            // three-letter code of the sector being entered (ZMUN, ZASW, ZBKE). Shown as the sector
+            // it marks the entry to - YMUN, YASP - in dark red, and only with "Sector crossings" on.
+            const BOUNDARY_COLOUR = '#991b1b';
+            const BOUNDARY_LABEL_COLOUR = '#f87171';
+            const isBoundaryPoint = (name) => /^Z[A-Z]{3}$/.test(name ?? '');
+            const boundaryName = (name) => 'Y' + name.slice(1);
             const DEFAULT_PREFS = {
-                layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, annotations: true, atis: true, routes: false },
+                layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, atis: true, routes: false, boundaryPoints: false },
                 online: { ADC: true, APP: true, DEP: true, ENR: true, FMP: true },
                 offline: { ADC: false, APP: false, DEP: false, ENR: true, FMP: false },
             };
@@ -471,7 +472,6 @@
 
             const aircraftMarkers = new Map(); // callsign -> { marker, el }
             const atisMarkers = new Map();     // icao -> marker
-            const noteMarkers = new Map();     // annotation id -> marker
 
             // Oceanic sectors crossing the antimeridian would otherwise draw straight across the map.
             function unwrapRing(ring) {
@@ -609,7 +609,8 @@
                 });
                 map.addLayer({
                     id: 'route-points', type: 'circle', source: 'route-points',
-                    paint: { 'circle-radius': 3, 'circle-color': '#020617', 'circle-stroke-width': 1.5, 'circle-stroke-color': ['get', 'colour'] },
+                    paint: { 'circle-radius': 3, 'circle-color': '#020617', 'circle-stroke-width': 1.5,
+                        'circle-stroke-color': ['case', ['get', 'boundary'], BOUNDARY_COLOUR, ['get', 'colour']] },
                 });
                 map.addLayer({
                     id: 'route-point-labels', type: 'symbol', source: 'route-points',
@@ -617,15 +618,9 @@
                         'text-field': ['get', 'name'], 'text-size': 10, 'text-offset': [0, 0.9], 'text-anchor': 'top',
                         'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                     },
-                    paint: { 'text-color': '#cbd5e1', 'text-halo-color': '#020617', 'text-halo-width': 1.2,
+                    paint: { 'text-color': ['case', ['get', 'boundary'], BOUNDARY_LABEL_COLOUR, '#cbd5e1'],
+                        'text-halo-color': '#020617', 'text-halo-width': 1.2,
                         'text-opacity': ['case', ['get', 'passed'], 0.45, 1] },
-                });
-
-                map.addSource('annotation-strokes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-                map.addLayer({
-                    id: 'annotation-strokes', type: 'line', source: 'annotation-strokes',
-                    layout: { 'line-cap': 'round', 'line-join': 'round' },
-                    paint: { 'line-color': ['get', 'colour'], 'line-width': 2.5, 'line-opacity': 0.9 },
                 });
 
                 map.on('click', onMapClick);
@@ -745,7 +740,7 @@
             function writeHash() {
                 const sel = state.selection;
                 const hash = sel ? `#${sel.kind}=${encodeURIComponent(sel.id)}` : '';
-                history.replaceState(null, '', `/ops?server=${encodeURIComponent(currentServer)}${hash}`);
+                history.replaceState(null, '', `/live-map?server=${encodeURIComponent(currentServer)}${hash}`);
             }
             function readHash() {
                 const match = /^#(controller|sector|flight|request)=(.+)$/.exec(window.location.hash);
@@ -1042,9 +1037,13 @@
                             lines.push({ type: 'Feature', properties: { kind: 'flown', colour, selected },
                                 geometry: { type: 'LineString', coordinates: flown } });
                         }
-                        route.points.forEach((p, i) => points.push({ type: 'Feature',
-                            properties: { name: p.n, colour, passed: i < next },
-                            geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }));
+                        route.points.forEach((p, i) => {
+                            const boundary = isBoundaryPoint(p.n);
+                            if (boundary && !state.layers.boundaryPoints) return;
+                            points.push({ type: 'Feature',
+                                properties: { name: boundary ? boundaryName(p.n) : p.n, colour, boundary, passed: i < next },
+                                geometry: { type: 'Point', coordinates: [p.lon, p.lat] } });
+                        });
                     }
                 }
 
@@ -1112,41 +1111,6 @@
                 }
                 for (const [icao, marker] of atisMarkers) {
                     if (!seen.has(icao)) { setMarkerVisible(marker, false); atisMarkers.delete(icao); }
-                }
-            }
-
-            function renderAnnotations() {
-                const annotations = state.ops?.annotations ?? [];
-                const strokes = annotations.filter((a) => a.kind === 'stroke' && (a.points?.length ?? 0) > 1).map((a) => ({
-                    type: 'Feature',
-                    properties: { colour: colourFor(a.author?.callsign) },
-                    geometry: { type: 'LineString', coordinates: a.points.map((p) => [p.lon, p.lat]) },
-                }));
-                const source = map.getSource('annotation-strokes');
-                if (source) source.setData({ type: 'FeatureCollection', features: state.layers.annotations ? strokes : [] });
-
-                const seen = new Set();
-                for (const note of annotations.filter((a) => a.kind === 'note' && a.points?.length)) {
-                    seen.add(note.id);
-                    let marker = noteMarkers.get(note.id);
-                    if (!marker) {
-                        const el = document.createElement('div');
-                        el.className = 'oz-note-marker';
-                        el.addEventListener('click', (event) => {
-                            event.stopPropagation();
-                            if (note.author?.callsign) select({ kind: 'controller', id: note.author.callsign });
-                        });
-                        marker = new mapboxgl.Marker({ element: el, anchor: 'left' });
-                        noteMarkers.set(note.id, marker);
-                    }
-                    const el = marker.getElement();
-                    el.style.setProperty('--c', colourFor(note.author?.callsign));
-                    el.innerHTML = `${esc(note.body)}<small>${esc(note.author?.callsign ?? '')}</small>`;
-                    marker.setLngLat([note.points[0].lon, note.points[0].lat]);
-                    setMarkerVisible(marker, state.layers.annotations);
-                }
-                for (const [id, marker] of noteMarkers) {
-                    if (!seen.has(id)) { setMarkerVisible(marker, false); noteMarkers.delete(id); }
                 }
             }
 
@@ -1402,7 +1366,6 @@
                 }
                 const home = c.home_sector ? state.shapes.get(c.home_sector) : null;
                 const requests = state.ops.requests ?? [];
-                const notes = (state.ops.annotations ?? []).filter((a) => a.author?.callsign === callsign);
                 const covering = c.sectors.filter((n) => n !== c.home_sector && !(home?.responsible_sectors ?? []).includes(n));
                 return `
                     <div class="oz-detail-head">
@@ -1422,8 +1385,7 @@
                     ${covering.length ? `<div class="oz-block"><h4>Beyond their own position</h4>${sectorList(covering)}</div>` : ''}
                     ${requestsBlock(requests.filter((r) => r.target_cid === c.cid && r.target_callsign === c.callsign), 'Asked of them')}
                     ${requestsBlock(requests.filter((r) => r.requesting_cid === c.cid && r.requesting_callsign === c.callsign), 'Their requests')}
-                    ${flightsTableBlock(controllerFlights(c.callsign))}
-                    ${notes.length ? `<div class="oz-block"><h4>Notes & drawings</h4>${notes.filter((n) => n.kind === 'note').length} notes · ${notes.filter((n) => n.kind === 'stroke').length} drawings</div>` : ''}`;
+                    ${flightsTableBlock(controllerFlights(c.callsign))}`;
             }
             function flightsTableBlock(flights) {
                 return `<div class="oz-block"><h4>Controlling ${flights.length} flight${flights.length === 1 ? '' : 's'}</h4>${flightsTable(flights)}</div>`;
@@ -1503,7 +1465,7 @@
             // Each part draws independently: one failing (bad data from a client, a map not ready
             // yet) must not leave every panel after it stale.
             function renderAll() {
-                for (const step of [applySectorStates, renderAircraft, renderAnnotations, renderAtis, renderStats,
+                for (const step of [applySectorStates, renderAircraft, renderAtis, renderStats,
                     renderControllers, renderSectorsTab, renderRequestsTab, renderFlightsTab, renderActivity, renderDetail, renderRoutes]) {
                     try { step(); } catch (error) { console.warn(step.name, error); }
                 }
@@ -1590,15 +1552,6 @@
                     if (old.online && !c.online) pushFeed('quiet', `${cs(c.callsign)} has stopped responding - their sectors are held until the grace period ends`, `controller:${c.callsign}`);
                     if (!old.online && c.online) pushFeed('back', `${cs(c.callsign)} is responding again`, `controller:${c.callsign}`);
                 }
-
-                // Notes and drawings.
-                const prevAnn = new Set(prev.annotations.map((a) => a.id));
-                const nextAnn = new Set(next.annotations.map((a) => a.id));
-                for (const a of next.annotations) {
-                    if (!prevAnn.has(a.id)) pushFeed('note', `${cs(a.author?.callsign)} ${a.kind === 'note' ? 'added a note: ' + b(String(a.body ?? '').slice(0, 60)) : 'drew on the map'}`, `controller:${a.author?.callsign}`);
-                }
-                const removed = prev.annotations.filter((a) => !nextAnn.has(a.id));
-                if (removed.length) pushFeed('note', `${removed.length} note${removed.length === 1 ? '' : 's'}/drawing${removed.length === 1 ? '' : 's'} removed`);
             }
 
             function diffFlights(prev, next) {
@@ -1730,7 +1683,6 @@
                 eventSource.onerror = () => { state.streamOpen = false; renderStats(); };
                 const onOps = coalesce(refreshOps, 250);
                 eventSource.addEventListener('sectors', onOps);
-                eventSource.addEventListener('annotations', onOps);
                 eventSource.addEventListener('fdr', coalesce(refreshAircraft, 1000));
                 // Routes change far less often than positions.
                 eventSource.addEventListener('fdr', coalesce(refreshRoutes, 5000));
