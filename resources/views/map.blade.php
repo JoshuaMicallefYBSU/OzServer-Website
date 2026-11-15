@@ -819,11 +819,17 @@
                 return Number.isFinite(f.lat) && Number.isFinite(f.lon) ? [f.lon, f.lat] : null;
             }
 
+            // Who has the tag: the OzServer controller tracking it, or - for a controller not on
+            // OzServer (a neighbouring FIR's) - whoever the reporting client saw tracking it.
+            function ownerOf(f) {
+                return f.controlling_callsign || f.tracked_by || null;
+            }
+
             function flightColour(f) {
                 const category = flightCategory(f);
                 if (category === 'pending') return '#4ade80';
                 if (category === 'completed') return '#f87171';
-                return f.controlling_callsign ? TRACKED_COLOUR : UNTRACKED_COLOUR;
+                return ownerOf(f) ? TRACKED_COLOUR : UNTRACKED_COLOUR;
             }
             function categoryBadge(f) {
                 const category = flightCategory(f);
@@ -850,7 +856,7 @@
                     ${pending.length ? `<h4><span style="color:#4ade80">▲</span> Awaiting departure (${pending.length})</h4>
                         <table>${pending.map((f) => row(f, [f.callsign, f.aircraft_type, '→ ' + (f.des_airport ?? '????'),
                             [f.sid_star_string, f.runway_string ?? f.departure_runway].filter(Boolean).join(' '),
-                            squawk(f), f.etd ? 'ETD ' + hhmm(f.etd) : '', f.controlling_callsign ?? 'no owner'])).join('')}</table>` : ''}
+                            squawk(f), f.etd ? 'ETD ' + hhmm(f.etd) : '', ownerOf(f) ?? 'no owner'])).join('')}</table>` : ''}
                     ${completed.length ? `<h4><span style="color:#f87171">▼</span> Completed (${completed.length})</h4>
                         <table>${completed.map((f) => row(f, [f.callsign, f.aircraft_type, 'from ' + (f.dep_airport ?? '????'),
                             f.atd ? 'ATD ' + hhmm(f.atd) : ''])).join('')}</table>` : ''}
@@ -934,7 +940,7 @@
                         entry = { marker, el, colour: null };
                         aircraftMarkers.set(flight.callsign, entry);
                     }
-                    const colour = flight.controlling_callsign ? TRACKED_COLOUR : UNTRACKED_COLOUR;
+                    const colour = ownerOf(flight) ? TRACKED_COLOUR : UNTRACKED_COLOUR;
                     const coupled = flight.coupled !== false;
                     const look = `${colour}|${coupled}`;
                     if (entry.colour !== look) {
@@ -947,7 +953,7 @@
                     // A box has no heading to show.
                     entry.el.querySelector('svg').style.transform = coupled ? `rotate(${flight.heading ?? 0}deg)` : '';
 
-                    entry.el.title = `${flight.callsign}${flight.controlling_callsign ? ' - ' + flight.controlling_callsign : ' - no owner'}`;
+                    entry.el.title = `${flight.callsign}${ownerOf(flight) ? ' - ' + ownerOf(flight) : ' - no owner'}`;
                     entry.el.classList.toggle('handover', isHandover(flight.state));
                     entry.el.classList.toggle('selected', focus?.flight === flight.callsign);
                     entry.el.classList.toggle('dim', !!focus && !focus.flight && focus.controller !== flight.controlling_callsign
@@ -1306,7 +1312,7 @@
                                 <div class="oz-title">${esc(f.callsign)} ${categoryBadge(f)} ${isHandover(f.state) ? '<span class="oz-badge warn">handoff</span>' : ''}</div>
                                 <div class="oz-sub">${esc(f.aircraft_type ?? '')} ${esc(f.dep_airport ?? '????')}→${esc(f.des_airport ?? '????')}</div>
                             </div>
-                            <div class="oz-right">${esc(f.controlling_callsign ?? 'no owner')}<br>${flightCategory(f) === 'airborne' && f.altitude != null ? esc(f.altitude) + 'ft' : ''}</div>
+                            <div class="oz-right">${esc(ownerOf(f) ?? 'no owner')}<br>${flightCategory(f) === 'airborne' && f.altitude != null ? esc(f.altitude) + 'ft' : ''}</div>
                         </button>`;
                 }).join('');
                 document.getElementById('oz-flights').innerHTML = html || '<div class="oz-empty">No flights.</div>';
@@ -1350,7 +1356,9 @@
                         <div><div class="oz-kind">Flight</div><h2>${esc(f.callsign)}</h2></div>
                         <button class="oz-close" data-close>×</button>
                     </div>
-                    <div class="oz-block"><h4>Jurisdiction</h4>${controllerChip(f.controlling_callsign)}
+                    <div class="oz-block"><h4>Jurisdiction</h4>${!f.controlling_callsign && f.tracked_by
+                        ? `<span class="oz-chip plain">${esc(f.tracked_by)}</span> <span class="oz-badge">not on OzServer</span>`
+                        : controllerChip(f.controlling_callsign)}
                         ${f.current_sector ? ' in ' + sectorChip(f.current_sector) : ''}
                         ${isHandover(f.state) ? '<div class="oz-note-box warn">Handoff in progress - being offered to the next controller.</div>' : ''}</div>
                     ${responsibleBlock(f)}
