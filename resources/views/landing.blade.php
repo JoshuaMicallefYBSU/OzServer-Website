@@ -317,7 +317,7 @@
                     </article>
                     <article class="oz-panel oz-card">
                         <div class="oz-card-head"><span class="oz-badge warn">Off</span><h3>Updates and an off switch</h3></div>
-                        <p>The plugin updates itself between sessions, and <b>Settings &rarr; Disable OzServer</b> hands everything back to plain vatSys if anything goes wrong.</p>
+                        <p>The plugin updates itself between sessions, and <b>Tools &rarr; Disable OzServer</b> hands everything back to plain vatSys if anything goes wrong.</p>
                     </article>
                 </div>
             </section>
