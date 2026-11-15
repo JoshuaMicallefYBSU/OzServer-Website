@@ -49,22 +49,6 @@ class HomeController extends Controller
 
     private const LAT_MAX = -6.0;
 
-    private const AIRPORTS = [
-        ['code' => 'YBBN', 'lon' => 153.1218, 'lat' => -27.3942],
-        ['code' => 'YSSY', 'lon' => 151.1797, 'lat' => -33.9508],
-        ['code' => 'YMML', 'lon' => 144.8403, 'lat' => -37.6714],
-        ['code' => 'YPAD', 'lon' => 138.5264, 'lat' => -34.9450],
-        ['code' => 'YPPH', 'lon' => 115.9669, 'lat' => -31.9402],
-        ['code' => 'YPDN', 'lon' => 130.8792, 'lat' => -12.4142],
-        ['code' => 'YBCS', 'lon' => 145.7501, 'lat' => -16.8785],
-        ['code' => 'YMLT', 'lon' => 147.2089, 'lat' => -41.5453],
-        ['code' => 'YMHB', 'lon' => 147.5103, 'lat' => -42.8389],
-        ['code' => 'YBAS', 'lon' => 133.8981, 'lat' => -23.8058],
-        ['code' => 'YBRM', 'lon' => 122.2319, 'lat' => -17.9447],
-        ['code' => 'YAYE', 'lon' => 130.9761, 'lat' => -25.1867],
-        ['code' => 'YMIA', 'lon' => 142.0819, 'lat' => -34.2231],
-    ];
-
     public function index()
     {
         $allSectors = $this->sectorShapes()->keyBy('name');
@@ -107,15 +91,14 @@ class HomeController extends Controller
             ->filter()
             ->values();
 
-        $airports = collect(self::AIRPORTS)->map(fn (array $airport) => [
-            'code' => $airport['code'],
-            'x' => round($this->projectX($airport['lon']), 2),
-            'y' => round($this->projectY($airport['lat']), 2),
-        ])->values();
-
         return view('landing', [
             'mapSectors' => $sectors,
-            'mapAirports' => $airports,
+            // The page projects live aircraft itself, with the same formula as projectX/projectY,
+            // so their tags sit on the same map as the sector shapes drawn here.
+            'mapBounds' => [
+                'lonMin' => self::LON_MIN, 'lonMax' => self::LON_MAX,
+                'latMin' => self::LAT_MIN, 'latMax' => self::LAT_MAX,
+            ],
         ]);
     }
 

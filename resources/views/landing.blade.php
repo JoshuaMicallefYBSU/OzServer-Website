@@ -6,9 +6,10 @@
         <title>OzServer | vatSys Server Management</title>
         <meta name="description" content="OzServer keeps vatSys sector ownership, tags and ATIS in sync across every VATPAC controller.">
         <style>
-            /* Same palette and type as the live map (map.blade.php), so the two read as one product. */
+            /* Panels, badges and type as on the live map (map.blade.php). The page itself is a vatSys
+               scope: the Australia dataset's own ASDBackground and Infill greys (Colours.xml). */
             :root {
-                --bg: rgba(2, 6, 23, 0.82);
+                --bg: rgba(2, 6, 23, 0.86);
                 --line: rgba(255, 255, 255, 0.09);
                 --text: #e2e8f0;
                 --muted: #94a3b8;
@@ -18,16 +19,20 @@
                 --bad: #f87171;
                 --good: #4ade80;
                 --flow: #c4b5fd;
+                --scope: rgb(127, 127, 127);   /* ASDBackground */
+                --infill: rgb(133, 133, 133);  /* Infill */
+                --on-scope: #0b0f14;           /* text sitting straight on the grey */
+                --on-scope-muted: #1f2933;
                 --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
                 --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
             }
             * { box-sizing: border-box; }
             html { scroll-behavior: smooth; }
-            body { margin: 0; min-height: 100vh; background: #020617; color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.55; }
+            body { margin: 0; min-height: 100vh; background: var(--scope); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.55; }
             a { color: inherit; }
             p { margin: 0; }
 
-            /* ---------- background: sectors + flying tags (unchanged logic) ---------- */
+            /* ---------- background scope: sectors + live traffic ---------- */
             .tag-field {
                 position: fixed;
                 inset: 0;
@@ -40,8 +45,8 @@
             }
             /* A square viewport sized to the smaller of width/height, so it always fits fully
                inside the window with nothing cropped - matching the map's own square (0-100)
-               viewBox. Flying tags are positioned by percentage within this same box (not the
-               full window), so they stay aligned with the sector shapes at every window size. */
+               viewBox. Aircraft are positioned within this same box (not the full window), so they
+               stay aligned with the sector shapes at every window size. */
             .map-viewport {
                 position: relative;
                 width: 100vmin;
@@ -55,13 +60,13 @@
                 display: block;
             }
             .oz-sector-static {
-                fill: rgba(34, 211, 238, 0.03);
-                stroke: rgba(148, 163, 184, 0.35);
+                fill: var(--infill);
+                stroke: rgba(80, 80, 80, 0.8);
                 stroke-width: 0.15;
             }
             .oz-sector-active {
-                fill: rgba(34, 211, 238, 0.4);
-                stroke: #22d3ee;
+                fill: rgb(160, 170, 170);
+                stroke: rgb(215, 215, 215);
                 stroke-width: 0.3;
                 opacity: 0.15;
                 /* 4 batches (see HomeController::ACTIVATED_SECTOR_GROUPS) x 5 slots x 2.8s/slot
@@ -76,20 +81,17 @@
                 12.5% { opacity: 1; }
                 16.25% { opacity: 0.15; }
             }
-            .vatsys-tag {
-                position: absolute;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                will-change: left, top, opacity;
-            }
+
+            /* Live aircraft, drawn the way vatSys draws a non-jurisdiction track: black on grey. */
+            .ac-leaders { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+            .ac-leaders line { stroke: #000; stroke-width: 1; opacity: 0.7; }
             .tag-target {
-                position: relative;
-                flex-shrink: 0;
-                width: 13px;
-                height: 13px;
+                position: absolute;
+                width: 11px;
+                height: 11px;
+                margin: -5.5px 0 0 -5.5px;
                 border-radius: 9999px;
-                border: 1px solid currentColor;
+                border: 1px solid #000;
             }
             .tag-target::before,
             .tag-target::after {
@@ -97,31 +99,19 @@
                 position: absolute;
                 top: 50%;
                 left: 50%;
-                background: currentColor;
+                background: #000;
             }
-            .tag-target::before { width: 1px; height: 7px; transform: translate(-50%, -50%); }
-            .tag-target::after { width: 7px; height: 1px; transform: translate(-50%, -50%); }
-            .tag-leader {
-                flex-shrink: 0;
-                width: 16px;
-                height: 1px;
-                background: currentColor;
-                opacity: 0.6;
-            }
-            .tag-box {
+            .tag-target::before { width: 1px; height: 6px; transform: translate(-50%, -50%); }
+            .tag-target::after { width: 6px; height: 1px; transform: translate(-50%, -50%); }
+            .ac-label {
+                position: absolute;
                 font-family: var(--mono);
                 font-size: 11px;
-                line-height: 1.3;
-                white-space: nowrap;
-                background: rgba(30, 41, 59, 0.55);
-                border-radius: 3px;
-                padding: 1px 4px;
+                line-height: 1.25;
+                white-space: pre;
+                color: #000;
             }
-            .tag-line2 {
-                opacity: 0.85;
-            }
-            .vatsys-tag { color: #a5f3dc; }
-            .vatsys-tag.tag--blue { color: #93c5fd; }
+            .ac-label[hidden] { display: none; }
             @media (prefers-reduced-motion: reduce) {
                 .oz-sector-active { animation: none; opacity: 0.5; }
                 html { scroll-behavior: auto; }
@@ -135,7 +125,7 @@
             .oz-wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
 
             .oz-topbar {
-                position: sticky; top: 12px; z-index: 5; margin: 12px auto 0; max-width: 1040px;
+                position: sticky; top: 12px; z-index: 5; margin: 12px auto 0; max-width: 1000px;
                 height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 14px;
             }
             .oz-brand { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; text-decoration: none; }
@@ -164,25 +154,27 @@
             .oz-badge.flow { background: rgba(167, 139, 250, 0.18); color: var(--flow); }
 
             /* ---------- hero ---------- */
-            .oz-hero { padding: 72px 0 24px; max-width: 680px; }
-            .oz-hero h1 { margin: 14px 0 0; font-size: clamp(30px, 5vw, 46px); line-height: 1.1; letter-spacing: -0.01em; font-weight: 700; }
+            .oz-hero { margin-top: 56px; padding: 28px 30px; max-width: 700px; }
+            .oz-hero h1 { margin: 14px 0 0; font-size: clamp(28px, 4.6vw, 42px); line-height: 1.12; letter-spacing: -0.01em; font-weight: 700; }
             .oz-hero h1 span { color: var(--accent); }
-            .oz-hero p { margin-top: 18px; font-size: 16px; color: var(--muted); max-width: 600px; }
-            .oz-hero .oz-actions { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; }
+            .oz-hero p { margin-top: 16px; font-size: 15px; color: var(--muted); }
+            .oz-hero .oz-actions { margin-top: 22px; display: flex; gap: 10px; flex-wrap: wrap; }
             .oz-hero .oz-btn { padding: 8px 14px; font-size: 13px; }
 
-            /* ---------- live stats strip ---------- */
-            .oz-stats { margin-top: 28px; display: flex; align-items: center; gap: 24px; padding: 12px 16px; flex-wrap: wrap; }
+            /* ---------- live status strip: full container width ---------- */
+            .oz-stats { margin-top: 14px; display: flex; align-items: center; gap: 12px 32px; padding: 14px 18px; flex-wrap: wrap; }
             .oz-stat { display: flex; flex-direction: column; line-height: 1.1; }
             .oz-stat b { font-size: 22px; font-family: var(--mono); }
             .oz-stat small { margin-top: 4px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-stat.accent b { color: var(--accent); }
+            .oz-stat.flow b { color: var(--flow); }
             .oz-stats .oz-live { margin-left: auto; }
 
             /* ---------- sections ---------- */
             .oz-section { margin-top: 64px; }
-            .oz-section-title { margin: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
-            .oz-section h2 { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
-            .oz-section > .oz-lead { margin-top: 8px; color: var(--muted); max-width: 640px; }
+            .oz-section-title { margin: 0; font-size: 11px; color: var(--on-scope-muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+            .oz-section h2 { margin: 6px 0 0; font-size: 24px; font-weight: 700; color: var(--on-scope); }
+            .oz-section > .oz-lead { margin-top: 8px; color: var(--on-scope-muted); max-width: 640px; }
 
             .oz-grid { margin-top: 20px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
             .oz-card { padding: 16px 18px; }
@@ -208,9 +200,10 @@
 
             .oz-link { color: var(--accent); text-decoration: underline; text-decoration-color: rgba(34, 211, 238, 0.35); text-underline-offset: 3px; }
             .oz-link:hover { text-decoration-color: var(--accent); }
+            .oz-lead .oz-link, footer .oz-link { color: var(--on-scope); text-decoration-color: rgba(0, 0, 0, 0.4); }
 
-            footer { margin-top: 80px; border-top: 1px solid var(--line); }
-            footer .oz-wrap { padding: 22px 20px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--faint); font-size: 12px; }
+            footer { margin-top: 80px; border-top: 1px solid rgba(0, 0, 0, 0.25); }
+            footer .oz-wrap { padding: 22px 20px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--on-scope-muted); font-size: 12px; }
 
             @media (max-width: 640px) {
                 .oz-nav { display: none; }
@@ -241,25 +234,28 @@
                 <a href="#how-it-works">How it works</a>
                 <a href="#for-developers">Developers</a>
             </nav>
-            <a href="/live-map" class="oz-btn on">Live map &rarr;</a>
+            <a href="/live-map" target="_blank" rel="noopener" class="oz-btn on">Live map &rarr;</a>
         </header>
 
         <main class="oz-wrap">
-            <section class="oz-hero">
+            <section class="oz-panel oz-hero">
                 <span class="oz-badge accent">In testing &middot; built for VATPAC</span>
                 <h1>Every vatSys controller, <span>one picture</span> of the airspace.</h1>
                 <p>OzServer is a vatSys plugin with a central server behind it. It keeps one shared record of who owns which sector, and every controller's scope follows it - sectors, tags and ATIS included.</p>
                 <div class="oz-actions">
-                    <a href="/live-map" class="oz-btn on">Open the live map</a>
+                    <a href="/live-map" target="_blank" rel="noopener" class="oz-btn on">Open the live map</a>
                     <a href="#how-it-works" class="oz-btn">How it works</a>
                 </div>
-
-                <div class="oz-panel oz-stats" id="live-network">
-                    <div class="oz-stat"><b id="stat-controllers">&mdash;</b><small>Controllers</small></div>
-                    <div class="oz-stat"><b id="stat-aircraft">&mdash;</b><small>Aircraft tracked</small></div>
-                    <div class="oz-live" id="stat-live"><i></i><span>Live network</span></div>
-                </div>
             </section>
+
+            <div class="oz-panel oz-stats" id="live-network">
+                <div class="oz-stat accent"><b id="stat-oz-controllers">&mdash;</b><small>Controllers on OzServer</small></div>
+                <div class="oz-stat"><b id="stat-other-controllers">&mdash;</b><small>Controllers without</small></div>
+                <div class="oz-stat flow"><b id="stat-atis">&mdash;</b><small>ATIS on the server</small></div>
+                <div class="oz-stat"><b id="stat-in-firs">&mdash;</b><small>Aircraft in our FIRs</small></div>
+                <div class="oz-stat accent"><b id="stat-seen">&mdash;</b><small>Seen by OzServer</small></div>
+                <div class="oz-live" id="stat-live"><i></i><span>Live network</span></div>
+            </div>
 
             <section id="features" class="oz-section">
                 <p class="oz-section-title">Features</p>
@@ -341,7 +337,7 @@
                     </article>
                     <article class="oz-panel oz-card">
                         <div class="oz-card-head"><i class="oz-swatch"></i><h3>Live map</h3></div>
-                        <p>The <a href="/live-map" class="oz-link">live map</a> follows sector, flight and ATIS changes over Server-Sent Events, with a slow poll underneath for anything that can't hold the stream open.</p>
+                        <p>The <a href="/live-map" target="_blank" rel="noopener" class="oz-link">live map</a> follows sector, flight and ATIS changes over Server-Sent Events, with a slow poll underneath for anything that can't hold the stream open.</p>
                     </article>
                     <article class="oz-panel oz-card">
                         <div class="oz-card-head"><i class="oz-swatch"></i><h3>Client plugin</h3></div>
@@ -354,32 +350,55 @@
         <footer>
             <div class="oz-wrap">
                 <span>OzServer &mdash; &copy; Joshua Micallef | 2026-{{ date('Y') }}</span>
-                <a href="/live-map" class="oz-link">Live map</a>
+                <a href="/live-map" target="_blank" rel="noopener" class="oz-link">Live map</a>
             </div>
         </footer>
 
         <script>
+            var apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
+
+            function getJson(path) {
+                return fetch(apiBaseUrl + path, { headers: { Accept: 'application/json' } })
+                    .then(function (response) {
+                        if (!response.ok) throw new Error(path + ': ' + response.status);
+                        return response.json();
+                    });
+            }
+
+            // ---------------- live status strip ----------------
             (function () {
-                var apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
-                var controllersEl = document.getElementById('stat-controllers');
-                var aircraftEl = document.getElementById('stat-aircraft');
-                var liveEl = document.getElementById('stat-live');
+                var el = function (id) { return document.getElementById(id); };
+                var liveEl = el('stat-live');
+
+                function show(id, value) { el(id).textContent = value; }
 
                 function loadStats() {
                     // Always the real network, not switchable - this is the public homepage, and
-                    // /api/v1/map/* now requires ?server= on every request (see map.ts).
-                    var controllers = fetch(apiBaseUrl + '/api/v1/map/controllers?server=live', { headers: { Accept: 'application/json' } })
-                        .then(function (response) { return response.json(); })
-                        .then(function (controllers) { controllersEl.textContent = controllers.length; })
-                        .catch(function () { controllersEl.textContent = '?'; throw new Error('controllers'); });
+                    // /api/v1/map/* requires ?server= on every request (see map.ts).
+                    var controllers = getJson('/api/v1/map/controllers?server=live')
+                        .then(function (rows) {
+                            // is_ozserver: the controller holds sectors through the plugin.
+                            var on = rows.filter(function (c) { return c.is_ozserver; }).length;
+                            show('stat-oz-controllers', on);
+                            show('stat-other-controllers', rows.length - on);
+                        })
+                        .catch(function (error) { show('stat-oz-controllers', '?'); show('stat-other-controllers', '?'); throw error; });
 
-                    var aircraft = fetch(apiBaseUrl + '/api/v1/map/aircraft?server=live', { headers: { Accept: 'application/json' } })
-                        .then(function (response) { return response.json(); })
-                        .then(function (aircraft) { aircraftEl.textContent = aircraft.length; })
-                        .catch(function () { aircraftEl.textContent = '?'; throw new Error('aircraft'); });
+                    var atis = getJson('/api/v1/map/atis?server=live')
+                        .then(function (rows) { show('stat-atis', rows.length); })
+                        .catch(function (error) { show('stat-atis', '?'); throw error; });
 
-                    // The dot goes green only while both counts are actually coming back.
-                    Promise.all([controllers, aircraft])
+                    // Every pilot VATSIM reports inside our airspace, and how many of them a
+                    // controller's plugin has a flight record for.
+                    var traffic = getJson('/api/v1/map/traffic')
+                        .then(function (counts) {
+                            show('stat-in-firs', counts.in_firs);
+                            show('stat-seen', counts.seen_by_ozserver);
+                        })
+                        .catch(function (error) { show('stat-in-firs', '?'); show('stat-seen', '?'); throw error; });
+
+                    // The dot goes green only while every count is actually coming back.
+                    Promise.all([controllers, atis, traffic])
                         .then(function () { liveEl.classList.add('on'); })
                         .catch(function () { liveEl.classList.remove('on'); });
                 }
@@ -388,86 +407,233 @@
                 setInterval(loadStats, 15000);
             })();
 
+            // ---------------- background scope: live VATSIM traffic ----------------
+            //
+            // Every airborne aircraft in VATSIM's datafeed around Australia (GET /map/pilots), placed
+            // with the same lon/lat -> 0-100 projection the sector shapes are drawn with (see
+            // HomeController::projectX/projectY), labelled the way the Australia dataset's Normal
+            // label lays out:
+            //
+            //   QFA1 H          callsign, wake turbulence category
+            //   350 370 45      datafeed level, requested level, groundspeed (first 2 digits)
+            //   YSSY            destination
+            //
+            // Between datafeed refreshes each aircraft is carried along its heading at its
+            // groundspeed, so the picture moves rather than jumping every 15 seconds.
+            //
+            // Labels are laid out around their aircraft so none overlap each other or another
+            // aircraft's symbol; one that cannot be placed anywhere is hidden (its symbol stays).
             (function () {
-                var field = document.getElementById('map-viewport');
-                if (!field || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-                if (!field.animate) return;
+                var viewport = document.getElementById('map-viewport');
+                if (!viewport) return;
 
-                // Positions come from the server, projected onto the map's 0-100 viewBox with
-                // the exact same lon/lat -> x/y formula used to draw the sector polygons above
-                // (see HomeController::projectX/projectY), so tags actually track over their
-                // real airport rather than just somewhere on screen.
-                var airports = @json($mapAirports);
-                var airlinePrefixes = ['QFA', 'JST', 'VOZ', 'ANZ', 'TGG', 'QLK', 'REX', 'NAU', 'CPA', 'SIA'];
-                var tagCount = 5 + Math.floor(Math.random() * 46); // 5-50
+                var bounds = @json($mapBounds);
+                var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                var SVG_NS = 'http://www.w3.org/2000/svg';
+                var LEADER = 16;      // px from the symbol's centre to the label's near corner
+                var TARGET = 6;       // half the symbol's size, for collision
+                var PAD = 2;          // clear space kept around every label
 
-                // Each tag keeps its callsign for its whole (endless) lifetime, so drawing
-                // from this shared set on creation is enough to guarantee no two tags ever
-                // show the same callsign at once.
-                var usedCallsigns = new Set();
+                var leaders = document.createElementNS(SVG_NS, 'svg');
+                leaders.setAttribute('class', 'ac-leaders');
+                viewport.appendChild(leaders);
 
-                function nextCallsign() {
-                    var callsign;
-                    do {
-                        var prefix = airlinePrefixes[Math.floor(Math.random() * airlinePrefixes.length)];
-                        callsign = prefix + (1 + Math.floor(Math.random() * 999));
-                    } while (usedCallsigns.has(callsign));
-                    usedCallsigns.add(callsign);
-                    return callsign;
+                var tracks = new Map(); // callsign -> track
+
+                function pad(value, width) {
+                    var text = String(value);
+                    while (text.length < width) text = '0' + text;
+                    return text;
                 }
 
-                function lerp(a, b, t) { return a + (b - a) * t; }
-
-                function randomAirportPair() {
-                    var from = airports[Math.floor(Math.random() * airports.length)];
-                    var to;
-                    do {
-                        to = airports[Math.floor(Math.random() * airports.length)];
-                    } while (to === from);
-                    return [from, to];
+                // As vatSys shows it: hundreds of feet, A-prefixed below the 10,000 ft transition.
+                function formatLevel(feet) {
+                    if (!isFinite(feet)) return '---';
+                    var hundreds = Math.max(0, Math.round(feet / 100));
+                    return (feet < 10500 ? 'A' : '') + pad(hundreds, 3);
                 }
 
-                function flyTag(el, routeEl) {
-                    var pair = randomAirportPair();
-                    var from = pair[0];
-                    var to = pair[1];
-                    routeEl.textContent = from.code + '→' + to.code;
+                // The filed cruising level arrives however the pilot typed it: "35000", "FL350",
+                // "F350", "A090", "9000".
+                function formatRfl(raw) {
+                    if (!raw) return '---';
+                    var text = String(raw).toUpperCase().replace(/\s/g, '');
+                    var digits = parseInt(text.replace(/^(FL|F|A)/, ''), 10);
+                    if (!isFinite(digits)) return '---';
+                    var hundreds = /^(FL|F|A)/.test(text) || digits < 1000 ? digits : Math.round(digits / 100);
+                    return pad(hundreds, 3);
+                }
 
-                    // Fades in/out over the first and last 8% of the flight so tags never
-                    // just pop into existence mid-air or vanish on arrival.
-                    var fades = [0, 0.08, 0.92, 1];
-                    var keyframes = fades.map(function (t) {
-                        return {
-                            left: lerp(from.x, to.x, t) + '%',
-                            top: lerp(from.y, to.y, t) + '%',
-                            opacity: (t === 0 || t === 1) ? 0 : 0.85,
-                            offset: t,
-                        };
+                function formatGroundspeed(knots) {
+                    return pad(Math.min(99, Math.max(0, Math.round(knots / 10))), 2);
+                }
+
+                function labelText(pilot) {
+                    return pilot.callsign + (pilot.wake ? ' ' + pilot.wake : '') + '\n'
+                        + formatLevel(pilot.altitude) + ' ' + formatRfl(pilot.rfl) + ' ' + formatGroundspeed(pilot.groundspeed) + '\n'
+                        + (pilot.arrival || '');
+                }
+
+                function createTrack(callsign) {
+                    var target = document.createElement('span');
+                    target.className = 'tag-target';
+                    var label = document.createElement('div');
+                    label.className = 'ac-label';
+                    var leader = document.createElementNS(SVG_NS, 'line');
+                    viewport.appendChild(target);
+                    viewport.appendChild(label);
+                    leaders.appendChild(leader);
+                    return { callsign: callsign, target: target, label: label, leader: leader, text: '', size: null, slot: null, pilot: null, at: 0 };
+                }
+
+                function removeTrack(track) {
+                    track.target.remove();
+                    track.label.remove();
+                    track.leader.remove();
+                    tracks.delete(track.callsign);
+                }
+
+                function loadPilots() {
+                    getJson('/api/v1/map/pilots')
+                        .then(function (pilots) {
+                            var now = Date.now();
+                            var seen = new Set();
+                            pilots.forEach(function (pilot) {
+                                seen.add(pilot.callsign);
+                                var track = tracks.get(pilot.callsign) || createTrack(pilot.callsign);
+                                tracks.set(pilot.callsign, track);
+                                track.pilot = pilot;
+                                track.at = now;
+                                var text = labelText(pilot);
+                                if (text !== track.text) {
+                                    track.text = text;
+                                    track.label.textContent = text;
+                                    track.size = null; // re-measured on the next layout
+                                }
+                            });
+                            tracks.forEach(function (track) { if (!seen.has(track.callsign)) removeTrack(track); });
+                            layout();
+                        })
+                        .catch(function () { /* keep showing the last picture; the next refresh retries */ });
+                }
+
+                // Where the aircraft is now, carried on from its last report.
+                function currentPosition(track) {
+                    var pilot = track.pilot;
+                    var seconds = reducedMotion ? 0 : Math.min(60, (Date.now() - track.at) / 1000);
+                    var nm = pilot.groundspeed * seconds / 3600;
+                    var heading = pilot.heading * Math.PI / 180;
+                    var lat = pilot.lat + nm * Math.cos(heading) / 60;
+                    var lon = pilot.lon + nm * Math.sin(heading) / (60 * Math.cos(pilot.lat * Math.PI / 180));
+                    return {
+                        x: (lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin),
+                        y: (bounds.latMax - lat) / (bounds.latMax - bounds.latMin),
+                    };
+                }
+
+                // Label positions around the symbol, in the order they are tried - up and to the
+                // right first, as vatSys places a label by default.
+                var SLOTS = ['NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N'];
+                function slotBox(slot, px, py, w, h) {
+                    switch (slot) {
+                        case 'NE': return { x: px + LEADER * 0.7, y: py - LEADER * 0.7 - h };
+                        case 'E':  return { x: px + LEADER, y: py - h / 2 };
+                        case 'SE': return { x: px + LEADER * 0.7, y: py + LEADER * 0.7 };
+                        case 'S':  return { x: px - w / 2, y: py + LEADER };
+                        case 'SW': return { x: px - LEADER * 0.7 - w, y: py + LEADER * 0.7 };
+                        case 'W':  return { x: px - LEADER - w, y: py - h / 2 };
+                        case 'NW': return { x: px - LEADER * 0.7 - w, y: py - LEADER * 0.7 - h };
+                        default:   return { x: px - w / 2, y: py - LEADER - h };
+                    }
+                }
+
+                function overlaps(a, b) {
+                    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+                }
+
+                // The point on the label's edge nearest the symbol, where the leader meets it.
+                function nearestEdge(box, px, py) {
+                    return {
+                        x: Math.max(box.x, Math.min(px, box.x + box.w)),
+                        y: Math.max(box.y, Math.min(py, box.y + box.h)),
+                    };
+                }
+
+                function layout() {
+                    var width = viewport.clientWidth;
+                    var height = viewport.clientHeight;
+                    if (!width || !height) return;
+
+                    var visible = [];
+                    tracks.forEach(function (track) {
+                        if (!track.pilot) return;
+                        var p = currentPosition(track);
+                        var px = p.x * width, py = p.y * height;
+                        var onMap = px >= 0 && px <= width && py >= 0 && py <= height;
+                        track.target.style.display = onMap ? '' : 'none';
+                        if (!onMap) { track.label.hidden = true; track.leader.style.display = 'none'; return; }
+                        track.target.style.left = px + 'px';
+                        track.target.style.top = py + 'px';
+                        track.px = px;
+                        track.py = py;
+                        visible.push(track);
                     });
 
-                    var duration = 26000 + Math.random() * 20000;
-                    var anim = el.animate(keyframes, { duration: duration, easing: 'linear' });
-                    anim.onfinish = function () { flyTag(el, routeEl); };
+                    // Measured only when the text changed - the label has to be on the page to measure.
+                    visible.forEach(function (track) {
+                        if (track.size) return;
+                        track.label.hidden = false;
+                        track.size = { w: track.label.offsetWidth, h: track.label.offsetHeight };
+                    });
+
+                    var symbols = visible.map(function (track) {
+                        return { owner: track, x: track.px - TARGET, y: track.py - TARGET, w: TARGET * 2, h: TARGET * 2 };
+                    });
+
+                    // Labels already on screen are placed first, so a settled picture stays settled
+                    // and a newcomer is what gets moved or hidden.
+                    visible.sort(function (a, b) {
+                        return (b.slot ? 1 : 0) - (a.slot ? 1 : 0) || (a.callsign < b.callsign ? -1 : 1);
+                    });
+
+                    var placed = [];
+                    visible.forEach(function (track) {
+                        var w = track.size.w, h = track.size.h;
+                        var order = track.slot ? [track.slot].concat(SLOTS.filter(function (s) { return s !== track.slot; })) : SLOTS;
+                        var chosen = null, chosenBox = null;
+
+                        for (var i = 0; i < order.length && !chosen; i++) {
+                            var at = slotBox(order[i], track.px, track.py, w, h);
+                            var box = { x: at.x - PAD, y: at.y - PAD, w: w + PAD * 2, h: h + PAD * 2 };
+                            if (box.x < 0 || box.y < 0 || box.x + box.w > width || box.y + box.h > height) continue;
+                            var clear = placed.every(function (other) { return !overlaps(box, other); })
+                                && symbols.every(function (symbol) { return symbol.owner === track || !overlaps(box, symbol); });
+                            if (clear) { chosen = order[i]; chosenBox = { x: at.x, y: at.y, w: w, h: h }; placed.push(box); }
+                        }
+
+                        track.slot = chosen;
+                        if (!chosen) {
+                            track.label.hidden = true;
+                            track.leader.style.display = 'none';
+                            return;
+                        }
+
+                        track.label.hidden = false;
+                        track.label.style.left = chosenBox.x + 'px';
+                        track.label.style.top = chosenBox.y + 'px';
+                        var end = nearestEdge(chosenBox, track.px, track.py);
+                        track.leader.style.display = '';
+                        track.leader.setAttribute('x1', track.px);
+                        track.leader.setAttribute('y1', track.py);
+                        track.leader.setAttribute('x2', end.x);
+                        track.leader.setAttribute('y2', end.y);
+                    });
                 }
 
-                for (var i = 0; i < tagCount; i++) {
-                    (function () {
-                        var tag = document.createElement('div');
-                        tag.className = 'vatsys-tag' + (Math.random() < 0.3 ? ' tag--blue' : '');
-                        tag.innerHTML =
-                            '<span class="tag-target"></span>' +
-                            '<span class="tag-leader"></span>' +
-                            '<div class="tag-box">' +
-                                '<div class="tag-line1">' + nextCallsign() + '</div>' +
-                                '<div class="tag-line2" data-route></div>' +
-                            '</div>';
-                        field.appendChild(tag);
-
-                        var routeEl = tag.querySelector('[data-route]');
-
-                        setTimeout(function () { flyTag(tag, routeEl); }, Math.random() * 4000);
-                    })();
-                }
+                loadPilots();
+                setInterval(loadPilots, 15000);
+                setInterval(layout, reducedMotion ? 15000 : 1000);
+                window.addEventListener('resize', layout);
             })();
         </script>
     </body>

@@ -224,7 +224,7 @@
         <div id="map"></div>
 
         <header class="oz-panel oz-topbar">
-            <a href="/" class="oz-brand" style="text-decoration:none">Oz<span>Server</span> Live Map</a>
+            <div class="oz-brand">Oz<span>Server</span> Live Map</div>
             <select id="oz-server-select" aria-label="Server"></select>
             <div class="oz-stats" id="oz-stats"></div>
             <button type="button" class="oz-btn" id="oz-routes-btn" title="Draw every flight's route as vatSys parsed it">Show all routes</button>
