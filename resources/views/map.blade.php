@@ -7,6 +7,7 @@
         <meta name="mapbox-token" content="{{ config('services.mapbox.token') }}">
         <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
         <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
         <style>
             :root {
                 --bg: rgba(2, 6, 23, 0.9);
@@ -524,7 +525,7 @@
                         }
                     }
                     const rank = TYPE_RANK[shape.type] ?? 2;
-                    state.shapes.set(shape.name, { ...shape, bbox, drawn: rings.length > 0, rank,
+                    state.shapes.set(shape.name, { ...shape, bbox, rings, drawn: rings.length > 0, rank,
                         area: bbox ? (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) : Infinity });
                     for (const child of shape.responsible_sectors ?? []) {
                         if (!state.coveredBy.has(child)) state.coveredBy.set(child, []);
@@ -557,18 +558,16 @@
                 // A sector the filters hide draws nothing at all, whatever else is true of it.
                 const fs = (key) => ['boolean', ['feature-state', key], false];
                 const hidden = ['!', fs('show')];
+                // Never painted: there for clicks and hover, which need each sector as its own
+                // feature. What shows is sectors-shading (see applySectorShading).
                 map.addLayer({
                     id: 'sectors-fill', type: 'fill', source: 'sectors',
-                    paint: {
-                        'fill-color': ['coalesce', ['feature-state', 'colour'], UNSTAFFED_COLOUR],
-                        'fill-opacity': ['case',
-                            hidden, 0,
-                            fs('sel'), 0.5,
-                            fs('hl'), 0.4,
-                            fs('dim'), ['case', fs('owned'), 0.12, 0],
-                            fs('owned'), 0.35,
-                            0],
-                    },
+                    paint: { 'fill-color': UNSTAFFED_COLOUR, 'fill-opacity': 0 },
+                });
+                map.addSource('sector-shading', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+                map.addLayer({
+                    id: 'sectors-shading', type: 'fill', source: 'sector-shading',
+                    paint: { 'fill-color': ['get', 'colour'], 'fill-opacity': ['get', 'opacity'] },
                 });
                 map.addLayer({
                     id: 'sectors-line', type: 'line', source: 'sectors',
@@ -770,6 +769,7 @@
             // ---------------- rendering: map ----------------
 
             const lastSectorStates = new Map();
+            let shadingDirty = true;
             function applySectorStates() {
                 if (!map.getSource('sectors')) return;
                 const focus = selectionFocus();
@@ -792,7 +792,65 @@
                     if (lastSectorStates.get(name) === key) continue;
                     lastSectorStates.set(name, key);
                     map.setFeatureState({ source: 'sectors', id: name }, next);
+                    shadingDirty = true;
                 }
+                if (shadingDirty) applySectorShading();
+            }
+
+            // How strongly a sector is shaded in its current state, or 0 for not at all.
+            function shadeOpacity(s) {
+                if (!s.show) return 0;
+                if (s.sel) return 0.5;
+                if (s.hl) return 0.4;
+                if (s.dim) return s.owned ? 0.12 : 0;
+                return s.owned ? 0.35 : 0;
+            }
+
+            // The sector shading, merged so that each spot is shaded once. A sector's volumes overlap
+            // (stacked steps, lower and upper parts) and so do neighbouring sectors; filled one by
+            // one, every overlap came out darker. Sectors are grouped by colour and strength, each
+            // group's volumes are unioned, and the strongest group takes the overlap: what it covers
+            // is cut out of every weaker one. Boundaries still show through sectors-line.
+            function applySectorShading() {
+                const source = map.getSource('sector-shading');
+                if (!source) return;
+                shadingDirty = false;
+
+                const groups = new Map();
+                for (const [name, shape] of state.shapes) {
+                    if (!shape.drawn) continue;
+                    const raw = lastSectorStates.get(name);
+                    if (!raw) continue;
+                    const s = JSON.parse(raw);
+                    const opacity = shadeOpacity(s);
+                    if (opacity <= 0) continue;
+                    const key = `${opacity}|${s.colour}`;
+                    if (!groups.has(key)) groups.set(key, { opacity, colour: s.colour, polygons: [] });
+                    for (const ring of shape.rings) groups.get(key).polygons.push([ring]);
+                }
+
+                const ordered = [...groups.values()].sort((a, b) => b.opacity - a.opacity);
+                const features = [];
+                let covered = null;
+                for (const group of ordered) {
+                    let shade;
+                    try {
+                        shade = polygonClipping.union(...group.polygons.map((p) => [p]));
+                        if (covered && shade.length) shade = polygonClipping.difference(shade, covered);
+                        covered = covered ? polygonClipping.union(covered, shade) : shade;
+                    } catch (err) {
+                        // A boundary the clipper can't handle: shaded volume by volume, as before.
+                        console.warn('Sector shading merge failed', err);
+                        shade = group.polygons;
+                    }
+                    if (!shade.length) continue;
+                    features.push({
+                        type: 'Feature',
+                        properties: { colour: group.colour, opacity: group.opacity },
+                        geometry: { type: 'MultiPolygon', coordinates: shade },
+                    });
+                }
+                source.setData({ type: 'FeatureCollection', features });
             }
 
             // An aircraft symbol for an FDR coupled to its radar track; a box for one that is not - a
