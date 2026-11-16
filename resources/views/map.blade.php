@@ -332,13 +332,22 @@
 
             // Saved in a cookie so a returning visitor gets the same map back.
             const PREFS_COOKIE = 'oz_ops_prefs';
-            // vatSys inserts a point wherever a route crosses a sector boundary, named Z + the
-            // three-letter code of the sector being entered (ZMUN, ZASW, ZBKE). Shown as the sector
-            // it marks the entry to - YMUN, YASP - in dark red, and only with "Sector crossings" on.
+            // vatSys inserts a point wherever a route enters an airspace volume (a ZPOINT, named "Z" +
+            // the volume: ZMUN, ZMLTWR, ZYTCUZONE). The plugin marks each one (z) with the vatSys
+            // sector that volume belongs to (s). They are never route waypoints: shown only with
+            // "Sector crossings" on, in dark red, labelled with that sector's name.
             const BOUNDARY_COLOUR = '#991b1b';
             const BOUNDARY_LABEL_COLOUR = '#f87171';
-            const isBoundaryPoint = (name) => /^Z[A-Z]{3}$/.test(name ?? '');
-            const boundaryName = (name) => 'Y' + name.slice(1);
+            // A route from a plugin older than the z flag carries no marking at all; only then is
+            // the name pattern used, and the volume name stands in for the sector it cannot know.
+            const LEGACY_BOUNDARY = /^Z[A-Z]{3}$/;
+            function routeCrossings(points) {
+                const marked = points.some((p) => p.z === true);
+                return points.map((p) => {
+                    if (marked) return p.z === true ? { sector: p.s ?? null } : null;
+                    return LEGACY_BOUNDARY.test(p.n ?? '') ? { sector: p.n.slice(1) } : null;
+                });
+            }
             const DEFAULT_PREFS = {
                 layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, atis: true, routes: false, boundaryPoints: false },
                 online: { ADC: true, APP: true, DEP: true, ENR: true, FMP: true },
@@ -1048,11 +1057,19 @@
                             lines.push({ type: 'Feature', properties: { kind: 'flown', colour, selected },
                                 geometry: { type: 'LineString', coordinates: flown } });
                         }
+                        const crossings = routeCrossings(route.points);
+                        let lastSector = null;
                         route.points.forEach((p, i) => {
-                            const boundary = isBoundaryPoint(p.n);
-                            if (boundary && !state.layers.boundaryPoints) return;
+                            const crossing = crossings[i];
+                            if (crossing) {
+                                // A volume no sector contains has no name to show, and a second
+                                // volume of the sector just entered is not a change of sector.
+                                if (!state.layers.boundaryPoints || !crossing.sector || crossing.sector === lastSector) return;
+                                lastSector = crossing.sector;
+                            }
+                            const boundary = !!crossing;
                             points.push({ type: 'Feature',
-                                properties: { name: boundary ? boundaryName(p.n) : p.n, colour, boundary, passed: i < next },
+                                properties: { name: boundary ? crossing.sector : p.n, colour, boundary, passed: i < next },
                                 geometry: { type: 'Point', coordinates: [p.lon, p.lat] } });
                         });
                     }
