@@ -47,21 +47,33 @@ class ConsoleTest extends TestCase
 
         $this->withSession(['console_unlocked' => true])
             ->postJson('/console/api/messages', [
-                'title' => 'Notice',
                 'body' => 'Please restart vatSys',
                 'server' => 'live',
-                'callsign' => '',
-                'allow_reply' => true,
-                'expires_minutes' => 120,
-                'sent_by' => 'Dev',
+                'callsigns' => [],
+                // Whatever the browser says, every message is signed by the team.
+                'sent_by' => 'Someone Else',
             ])
             ->assertStatus(201)
             ->assertJson(['id' => 7]);
 
         Http::assertSent(fn (Request $request) => $request->url() === 'https://api.example.test/api/v1/admin/messages'
             && $request->hasHeader('Authorization', 'Bearer console-token-0123456789abcdef')
-            && $request['callsign'] === null
-            && $request['allow_reply'] === true);
+            && $request['title'] === ''
+            && $request['callsigns'] === null
+            && $request['allow_reply'] === true
+            && $request['expires_minutes'] === 15
+            && $request['sent_by'] === 'OzServer Development Team');
+    }
+
+    public function test_sending_to_chosen_controllers_passes_the_list(): void
+    {
+        Http::fake(['api.example.test/*' => Http::response(['id' => 8], 201)]);
+
+        $this->withSession(['console_unlocked' => true])
+            ->postJson('/console/api/messages', ['body' => 'Hi', 'callsigns' => ['ML-BLA_CTR', 'ML_APP']])
+            ->assertStatus(201);
+
+        Http::assertSent(fn (Request $request) => $request['callsigns'] === ['ML-BLA_CTR', 'ML_APP']);
     }
 
     public function test_sending_validates_before_forwarding(): void

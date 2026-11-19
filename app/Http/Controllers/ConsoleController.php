@@ -18,6 +18,9 @@ use Illuminate\View\View;
 // is public in any case.)
 class ConsoleController extends Controller
 {
+    // Every developer message is signed this way.
+    private const SENDER = 'OzServer Development Team';
+
     public function show(Request $request): View
     {
         abort_if(blank(config('services.ozserver_api.console_password')), 404);
@@ -66,24 +69,37 @@ class ConsoleController extends Controller
         $this->ensureUnlocked($request);
 
         $data = $request->validate([
-            'title' => ['required', 'string', 'max:120'],
+            'title' => ['nullable', 'string', 'max:120'],
             'body' => ['required', 'string', 'max:2000'],
             'server' => ['nullable', 'in:all,live,sb1,sb2'],
-            'callsign' => ['nullable', 'string', 'max:32'],
+            // Empty: everyone. Otherwise the connected controllers picked from the checklist.
+            'callsigns' => ['nullable', 'array', 'max:100'],
+            'callsigns.*' => ['string', 'max:32'],
             'allow_reply' => ['boolean'],
-            'expires_minutes' => ['required', 'integer', 'min:5', 'max:10080'],
-            'sent_by' => ['required', 'string', 'max:40'],
+            // Only for a message to everyone; one to chosen controllers is theirs alone.
+            'expires_minutes' => ['nullable', 'integer', 'min:5', 'max:10080'],
         ]);
 
         return $this->forward(fn (PendingRequest $api) => $api->post('/api/v1/admin/messages', [
-            'title' => $data['title'],
+            'title' => (string) ($data['title'] ?? ''),
             'body' => $data['body'],
             'server' => $data['server'] ?? 'all',
-            'callsign' => filled($data['callsign'] ?? null) ? $data['callsign'] : null,
-            'allow_reply' => (bool) ($data['allow_reply'] ?? false),
-            'expires_minutes' => (int) $data['expires_minutes'],
-            'sent_by' => $data['sent_by'],
+            'callsigns' => array_values(array_filter($data['callsigns'] ?? [], 'filled')) ?: null,
+            'allow_reply' => (bool) ($data['allow_reply'] ?? true),
+            'expires_minutes' => (int) ($data['expires_minutes'] ?? 15),
+            'sent_by' => self::SENDER,
         ]));
+    }
+
+    // Controllers connected now, for the To checklist.
+    public function clients(Request $request): JsonResponse
+    {
+        $this->ensureUnlocked($request);
+
+        $server = (string) $request->query('server', 'all');
+        abort_unless(in_array($server, ['all', 'live', 'sb1', 'sb2'], true), 422, 'Unknown server.');
+
+        return $this->forward(fn (PendingRequest $api) => $api->get('/api/v1/admin/clients', ['server' => $server]));
     }
 
     public function withdraw(Request $request, int $id): JsonResponse

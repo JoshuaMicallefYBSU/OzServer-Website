@@ -224,6 +224,11 @@
                 .oz-stats .oz-stat:nth-child(n+3) { display: none; }
                 .mapboxgl-ctrl-bottom-left { left: 0; }
             }
+            /* ---------- embedded (?embed=1, as the /console shows it) ---------- */
+            /* The map alone with its stats: the sidebar and detail panel are the console's job there, and
+               the server comes from the URL. */
+            .oz-embed .oz-sidebar, .oz-embed .oz-detail, .oz-embed #oz-server-select, .oz-embed #oz-routes-btn { display: none !important; }
+            .oz-embed .oz-topbar { top: 8px; left: 8px; right: 8px; height: 38px; }
         </style>
     </head>
     <body>
@@ -309,6 +314,8 @@
                 { value: 'sb2', label: 'SweatBox 2' },
             ];
             let currentServer = new URLSearchParams(window.location.search).get('server');
+            // Embedded in the /console: the map and its stats only - see .oz-embed.
+            if (new URLSearchParams(window.location.search).get('embed') === '1') document.body.classList.add('oz-embed');
 
             const TYPE_RANK = { FMP: 0, CTR: 1, FSS: 1, APP: 2, DEP: 2, TWR: 3, GND: 4, DEL: 4 };
             const UNSTAFFED_COLOUR = '#475569';

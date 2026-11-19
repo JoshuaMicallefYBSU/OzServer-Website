@@ -27,4 +27,5 @@ Route::prefix('/console/api')->middleware('throttle:60,1')->group(function () {
     Route::get('/messages', [ConsoleController::class, 'messages']);
     Route::post('/messages', [ConsoleController::class, 'send']);
     Route::post('/messages/{id}/withdraw', [ConsoleController::class, 'withdraw'])->whereNumber('id');
+    Route::get('/clients', [ConsoleController::class, 'clients']);
 });
