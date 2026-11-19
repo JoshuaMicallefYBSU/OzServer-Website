@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HomeController;
 use Illuminate\Support\Facades\Route;
 
@@ -16,11 +17,14 @@ foreach (['/ops', '/map'] as $oldMapUrl) {
         '/live-map'.(request()->getQueryString() ? '?'.request()->getQueryString() : ''), 301));
 }
 
-Route::get('/console', function () {
-    // No password configured means no route - safer than serving a page whose gate a blank
-    // submission would pass. See config/services.php's own comment on what this password is (and
-    // isn't) protecting.
-    abort_if(blank(config('services.ozserver_api.console_password')), 404);
-
-    return view('console');
+// No password configured means no console (ConsoleController answers 404). The password is
+// checked server-side and held in the session; the message routes forward to the OzServer API
+// with a token only this server holds.
+Route::get('/console', [ConsoleController::class, 'show']);
+Route::post('/console/unlock', [ConsoleController::class, 'unlock'])->middleware('throttle:10,1');
+Route::post('/console/lock', [ConsoleController::class, 'lock']);
+Route::prefix('/console/api')->middleware('throttle:60,1')->group(function () {
+    Route::get('/messages', [ConsoleController::class, 'messages']);
+    Route::post('/messages', [ConsoleController::class, 'send']);
+    Route::post('/messages/{id}/withdraw', [ConsoleController::class, 'withdraw'])->whereNumber('id');
 });
