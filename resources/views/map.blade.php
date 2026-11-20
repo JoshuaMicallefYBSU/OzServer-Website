@@ -52,6 +52,11 @@
             }
             .oz-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
             .oz-btn.on { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.6); color: var(--accent); }
+            /* Airspace region toggles: one per region (Australia, Mexico), each switching that whole
+               airspace - sectors, aircraft, ATIS and its entries in the lists - on or off. */
+            .oz-regions { display: flex; gap: 4px; }
+            .oz-regions .oz-btn { color: var(--faint); }
+            .oz-regions .oz-btn.on { color: var(--accent); }
             .oz-live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
             .oz-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
             .oz-live.on i { background: var(--good); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.2); }
@@ -237,6 +242,7 @@
         <header class="oz-panel oz-topbar">
             <div class="oz-brand">Oz<span>Server</span> Live Map</div>
             <select id="oz-server-select" aria-label="Server"></select>
+            <div class="oz-regions" id="oz-regions" role="group" aria-label="Airspace"></div>
             <div class="oz-stats" id="oz-stats"></div>
             <button type="button" class="oz-btn" id="oz-routes-btn" title="Draw every flight's route as vatSys parsed it">Show all routes</button>
             <div class="oz-live" id="oz-live" title="Live updates"><i></i><span>Connecting…</span></div>
@@ -303,6 +309,11 @@
             // Data: /map/sector-shapes once (geometry), then /map/ops (ownership, controllers,
             // requests), /map/aircraft, /map/atis and /map/controllers - re-read on
             // the API's SSE signals, with a slow poll underneath in case the stream is unavailable.
+            //
+            // Airspace is grouped into regions (Australia - the Australia and Pacific datasets - and
+            // Mexico), each switched on or off from the top bar. Every sector, aircraft and ATIS the
+            // API serves names its region; a region switched off is left out of the map and of
+            // every list and count.
             // ------------------------------------------------------------------------------------
             const apiBaseUrl = @json(rtrim(config('services.ozserver_api.url'), '/'));
             const POLL_INTERVAL_MS = 15000;
@@ -312,6 +323,11 @@
                 { value: 'live', label: 'Live VATSIM' },
                 { value: 'sb1', label: 'SweatBox 1' },
                 { value: 'sb2', label: 'SweatBox 2' },
+            ];
+            // A fallback only, like DEFAULT_SERVERS: replaced from GET /api/v1/regions below.
+            const DEFAULT_REGIONS = [
+                { value: 'australia', label: 'Australia' },
+                { value: 'mexico', label: 'Mexico' },
             ];
             let currentServer = new URLSearchParams(window.location.search).get('server');
             // Embedded in the /console: the map and its stats only - see .oz-embed.
@@ -360,6 +376,9 @@
                 layers: { labels: true, aircraft: true, aerodromes: true, acLabels: false, requests: true, atis: true, routes: false, boundaryPoints: false },
                 online: { ADC: true, APP: true, DEP: true, ENR: true, FMP: true },
                 offline: { ADC: false, APP: false, DEP: false, ENR: true, FMP: false },
+                // Region -> shown. Only regions switched off are ever stored as false; one missing
+                // (every region, the first time, and any region added later) is shown.
+                regions: {},
             };
             function loadPrefs() {
                 try {
@@ -369,13 +388,14 @@
                         layers: { ...DEFAULT_PREFS.layers, ...(saved.layers ?? {}) },
                         online: { ...DEFAULT_PREFS.online, ...(saved.online ?? {}) },
                         offline: { ...DEFAULT_PREFS.offline, ...(saved.offline ?? {}) },
+                        regions: { ...DEFAULT_PREFS.regions, ...(saved.regions ?? {}) },
                     };
                 } catch {
                     return structuredClone(DEFAULT_PREFS);
                 }
             }
             function savePrefs() {
-                const value = encodeURIComponent(JSON.stringify({ layers: state.layers, online: state.online, offline: state.offline }));
+                const value = encodeURIComponent(JSON.stringify({ layers: state.layers, online: state.online, offline: state.offline, regions: state.regions }));
                 document.cookie = `${PREFS_COOKIE}=${value}; max-age=${60 * 60 * 24 * 365}; path=/; SameSite=Lax`;
             }
             const prefs = loadPrefs();
@@ -394,6 +414,8 @@
                 layers: prefs.layers,
                 online: prefs.online,
                 offline: prefs.offline,
+                regions: prefs.regions,
+                regionList: DEFAULT_REGIONS,
                 feed: [],
                 unseenFeed: 0,
                 activeTab: 'controllers',
@@ -426,6 +448,17 @@
 
             function isFlow(callsign) { return !!callsign && /_FMP$/i.test(callsign); }
             function isHandover(stateValue) { return stateValue === 'STATE_HANDOVER' || stateValue === 'STATE_HANDOVER_FIRST'; }
+
+            // Whether a region is switched on. Anything with no known region (a flight the API could
+            // place in no sector or aerodrome) is shown whatever is switched off.
+            function regionOn(region) { return !region || state.regions[region] !== false; }
+            function sectorOn(name) { return regionOn(state.shapes.get(name)?.region); }
+            function flightOn(f) { return regionOn(f.region); }
+            // A controller belongs to the region of their own position, or failing that of the first
+            // sector they hold.
+            function controllerOn(c) { return sectorOn(c.home_sector ?? c.sectors?.[0]); }
+            function visibleFlights() { return state.flights.filter(flightOn); }
+            function visibleRequests() { return (state.ops?.requests ?? []).filter((r) => sectorOn(r.sector)); }
 
             function zulu(date) { return new Date(date).toISOString().slice(11, 19) + 'z'; }
             function hhmm(iso) { return iso ? new Date(iso).toISOString().slice(11, 16) + 'z' : null; }
@@ -662,6 +695,7 @@
             // up is always drawn - choosing a controller should show all of their airspace even if
             // its kind is filtered out.
             function sectorShown(name, focus = selectionFocus()) {
+                if (!sectorOn(name)) return false;
                 if (focus?.sectors.has(name) || focus?.selected === name) return true;
                 const shape = state.shapes.get(name);
                 const filters = state.owners.has(name) ? state.online : state.offline;
@@ -946,7 +980,7 @@
             function renderAerodromes() {
                 const focus = selectionFocus();
                 const groups = new Map(); // ICAO -> { point, pending: [], completed: [] }
-                for (const f of state.flights) {
+                for (const f of visibleFlights()) {
                     const category = flightCategory(f);
                     if (category === 'airborne') continue;
                     const icao = category === 'pending' ? f.dep_airport : f.des_airport;
@@ -1004,7 +1038,7 @@
                 renderAerodromes();
                 const focus = selectionFocus();
                 const seen = new Set();
-                for (const flight of state.flights) {
+                for (const flight of visibleFlights()) {
                     if (flightCategory(flight) !== 'airborne') continue;
                     if (!Number.isFinite(flight.lat) || !Number.isFinite(flight.lon)) continue;
                     seen.add(flight.callsign);
@@ -1094,7 +1128,7 @@
                 const lines = [];
                 const points = [];
 
-                for (const flight of state.flights) {
+                for (const flight of visibleFlights()) {
                     const selected = flight.callsign === selectedCallsign;
                     const category = flightCategory(flight);
                     // All routes shows traffic still going somewhere; a completed flight's route
@@ -1203,7 +1237,7 @@
                     marker.getElement().classList.toggle('saved', atis.connected === false);
                     marker.setLngLat([atis.lon, atis.lat]);
                     marker.getPopup().setHTML(atisPopupHtml(atis));
-                    setMarkerVisible(marker, state.layers.atis);
+                    setMarkerVisible(marker, state.layers.atis && regionOn(atis.region));
                 }
                 for (const [icao, marker] of atisMarkers) {
                     if (!seen.has(icao)) { setMarkerVisible(marker, false); atisMarkers.delete(icao); }
@@ -1231,17 +1265,21 @@
 
             function renderStats() {
                 const ops = state.ops;
-                const pending = (ops?.requests ?? []).filter((r) => !r.rejected_at);
+                // Counted over the regions switched on only, like everything else on the page.
+                const flights = visibleFlights();
+                const pending = visibleRequests().filter((r) => !r.rejected_at);
                 const pendingGroups = new Set(pending.map((r) => r.group_id)).size;
-                const airborne = state.flights.filter((f) => flightCategory(f) === 'airborne');
+                const airborne = flights.filter((f) => flightCategory(f) === 'airborne');
                 const tracked = airborne.filter((f) => f.controlling_callsign).length;
-                const awaiting = state.flights.filter((f) => flightCategory(f) === 'pending').length;
-                const completed = state.flights.filter((f) => flightCategory(f) === 'completed').length;
-                const handovers = state.flights.filter((f) => isHandover(f.state)).length;
-                const totalDrawn = [...state.shapes.values()].filter((s) => s.drawn).length;
+                const awaiting = flights.filter((f) => flightCategory(f) === 'pending').length;
+                const completed = flights.filter((f) => flightCategory(f) === 'completed').length;
+                const handovers = flights.filter((f) => isHandover(f.state)).length;
+                const totalDrawn = [...state.shapes.values()].filter((s) => s.drawn && regionOn(s.region)).length;
+                const controllersOn = (ops?.controllers ?? []).filter(controllerOn).length;
+                const held = (ops?.ownerships ?? []).filter((o) => sectorOn(o.sector)).length;
                 document.getElementById('oz-stats').innerHTML = [
-                    ['ATC on OzServer', ops?.controllers?.length ?? 0],
-                    ['Sectors held', `${ops?.ownerships?.length ?? 0}<span style="color:var(--faint);font-size:11px">/${totalDrawn}</span>`],
+                    ['ATC on OzServer', controllersOn],
+                    ['Sectors held', `${held}<span style="color:var(--faint);font-size:11px">/${totalDrawn}</span>`],
                     ['Pending requests', pendingGroups, pendingGroups ? 'warn' : ''],
                     ['Tags owned', `${tracked}<span style="color:var(--faint);font-size:11px">/${airborne.length} airborne</span>`],
                     ['Awaiting dep', `<span style="color:#4ade80">▲${awaiting}</span>`],
@@ -1262,7 +1300,7 @@
             function renderControllers() {
                 const sel = state.selection;
                 const focus = selectionFocus();
-                const rows = (state.ops?.controllers ?? []).map((c) => {
+                const rows = (state.ops?.controllers ?? []).filter(controllerOn).map((c) => {
                     const flights = controllerFlights(c.callsign).length;
                     const incoming = (state.ops.requests ?? []).filter((r) => r.target_callsign === c.callsign && !r.rejected_at);
                     const outgoing = (state.ops.requests ?? []).filter((r) => r.requesting_callsign === c.callsign && !r.rejected_at);
@@ -1285,7 +1323,7 @@
                 // Live only: controllers the VATSIM datafeed shows on a known position who are not
                 // using OzServer - their airspace cannot appear as held above.
                 const onOz = new Set((state.ops?.controllers ?? []).map((c) => c.callsign));
-                const others = state.vatsimControllers.filter((c) => !c.is_ozserver && !onOz.has(c.callsign));
+                const others = state.vatsimControllers.filter((c) => !c.is_ozserver && !onOz.has(c.callsign) && regionOn(c.region));
                 const otherRows = others.map((c) => `
                     <div class="oz-row" style="cursor:default">
                         <i class="oz-swatch" style="--c:#334155"></i>
@@ -1303,6 +1341,7 @@
                 const filter = document.getElementById('oz-sector-search').value.trim().toUpperCase();
                 const focus = selectionFocus();
                 const shapes = [...state.shapes.values()].filter((s) => {
+                    if (!regionOn(s.region)) return false;
                     if (!filter) return state.owners.has(s.name);
                     const owner = state.owners.get(s.name)?.callsign ?? '';
                     return [s.name, s.full_name, s.callsign, owner, s.type].some((v) => String(v ?? '').toUpperCase().includes(filter));
@@ -1327,7 +1366,7 @@
             }
 
             function renderRequestsTab() {
-                const groups = requestGroups();
+                const groups = requestGroups().filter((g) => g.sectors.some(sectorOn));
                 const html = groups.map((g) => {
                     const selected = state.selection?.kind === 'request' && state.selection.id === g.group_id;
                     return `
@@ -1351,7 +1390,7 @@
             function renderFlightsTab() {
                 const filter = document.getElementById('oz-flight-search').value.trim().toUpperCase();
                 const focus = selectionFocus();
-                const flights = state.flights.filter((f) => !filter || [f.callsign, f.aircraft_type, f.dep_airport, f.des_airport,
+                const flights = visibleFlights().filter((f) => !filter || [f.callsign, f.aircraft_type, f.dep_airport, f.des_airport,
                     f.controlling_callsign, f.current_sector].some((v) => String(v ?? '').toUpperCase().includes(filter)));
 
                 // Within a controller's focus their own traffic comes first.
@@ -1851,6 +1890,69 @@
             }
             renderFilters();
 
+            // Region toggles: one button per region, both on by default, saved with the other
+            // preferences.
+            const regionsBar = document.getElementById('oz-regions');
+            function renderRegions() {
+                regionsBar.innerHTML = state.regionList.map((r) => `<button type="button" class="oz-btn ${regionOn(r.value) ? 'on' : ''}"
+                    data-region="${esc(r.value)}" aria-pressed="${regionOn(r.value)}" title="Show or hide ${esc(r.label)} airspace">${esc(r.label)}</button>`).join('');
+            }
+            renderRegions();
+            getJson('/api/v1/regions', false)
+                .then((regions) => { if (Array.isArray(regions) && regions.length) { state.regionList = regions; renderRegions(); } })
+                .catch(() => {});
+
+            // Whether what is selected now belongs to a region that is switched off.
+            function selectionHidden() {
+                const sel = state.selection;
+                if (sel?.kind === 'sector') return !sectorOn(sel.id);
+                if (sel?.kind === 'flight') { const f = state.flightsByCallsign.get(sel.id); return !!f && !flightOn(f); }
+                if (sel?.kind === 'controller') { const c = state.controllers.get(sel.id); return !!c && !controllerOn(c); }
+                return false;
+            }
+
+            regionsBar.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-region]');
+                if (!button) return;
+                const region = button.dataset.region;
+                if (regionOn(region)) state.regions[region] = false; else delete state.regions[region];
+                savePrefs();
+                renderRegions();
+                if (selectionHidden()) select(null, { fly: false }); else renderAll();
+                fitToRegions();
+            });
+
+            // Every drawn sector's box in one region, in one longitude frame: a Pacific sector across
+            // the antimeridian can come out of unwrapRing on either side of it, so each box is moved
+            // by whole turns to sit nearest the first one.
+            function regionBounds(region) {
+                let bbox = null, ref = null;
+                for (const shape of state.shapes.values()) {
+                    if (shape.region !== region || !shape.bbox) continue;
+                    let [w, s, e, n] = shape.bbox;
+                    const mid = (w + e) / 2;
+                    if (ref === null) ref = mid;
+                    const shift = Math.round((ref - mid) / 360) * 360;
+                    w += shift; e += shift;
+                    bbox = bbox ? [Math.min(bbox[0], w), Math.min(bbox[1], s), Math.max(bbox[2], e), Math.max(bbox[3], n)] : [w, s, e, n];
+                }
+                return bbox;
+            }
+
+            // With exactly one region on, the view moves to it: switching off the airspace being
+            // looked at, or opening the map with only one region on, should not leave an empty map.
+            function fitToRegions({ duration = 700 } = {}) {
+                const on = state.regionList.filter((r) => regionOn(r.value));
+                if (on.length !== 1) return;
+                const bbox = regionBounds(on[0].value);
+                if (!bbox) return;
+                const wide = window.innerWidth > 900;
+                map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+                    padding: wide ? { top: 90, bottom: 40, left: 380, right: 40 } : 40,
+                    maxZoom: 7, duration,
+                });
+            }
+
             document.getElementById('oz-filters').addEventListener('click', (event) => {
                 const button = event.target.closest('[data-filter]');
                 if (!button) return;
@@ -1911,7 +2013,7 @@
                 loadShapes(shapes);
                 applyLayerVisibility();
                 renderAll();
-                if (state.selection) flyToSelection();
+                if (state.selection) flyToSelection(); else fitToRegions({ duration: 0 });
             })();
         </script>
     </body>
