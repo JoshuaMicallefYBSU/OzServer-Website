@@ -286,6 +286,7 @@
                 <span><i class="oz-swatch" style="--c:#22d3ee"></i>Highlighted</span>
                 <span><i class="l-sel"></i>Selected</span>
                 <span><i class="l-req"></i>Requested</span>
+                <span><i class="oz-swatch" style="--c:#fdba74"></i>Held without the plugin</span>
                 <span><i class="l-tri" style="--c:#16a34a"></i>Owned tag</span>
                 <span><i class="l-tri" style="--c:#94a3b8"></i>No owner</span>
                 <span><i class="l-box"></i>Not coupled</span>
@@ -338,6 +339,9 @@
             const INFILL_COLOUR = 'rgb(133, 133, 133)'; // vatSys's own "Infill" (Colours.xml) - an online sector
             const HIGHLIGHT_COLOUR = '#22d3ee';
             const REQUEST_COLOUR = '#fb923c';
+            // Airspace a controller works without the plugin (the API's external holdings): held,
+            // so nobody on OzServer can claim it, but not through OzServer. A faint orange tinge.
+            const EXTERNAL_COLOUR = '#fdba74';
             const TRACKED_COLOUR = '#16a34a';   // a tag someone owns
             const UNTRACKED_COLOUR = '#94a3b8'; // a tag coasting with no owner (kept current by its data authority)
 
@@ -405,6 +409,7 @@
                 coveredBy: new Map(),       // sector name -> [parent sector names whose responsible_sectors include it]
                 ops: null,                  // last /map/ops snapshot
                 owners: new Map(),          // sector name -> ownership row
+                external: new Map(),        // sector name -> { sector, callsign, cid } held without the plugin (/map/ops)
                 controllers: new Map(),     // callsign -> controller (from /map/ops)
                 flights: [],
                 flightsByCallsign: new Map(),
@@ -447,6 +452,8 @@
             }
 
             function isFlow(callsign) { return !!callsign && /_FMP$/i.test(callsign); }
+            // Held at all: through OzServer, or by a controller without the plugin.
+            function isHeld(name) { return state.owners.has(name) || state.external.has(name); }
             function isHandover(stateValue) { return stateValue === 'STATE_HANDOVER' || stateValue === 'STATE_HANDOVER_FIRST'; }
 
             // Whether a region is switched on. Anything with no known region (a flight the API could
@@ -685,7 +692,7 @@
                 map.on('click', onMapClick);
                 // The pointer only where a click would pick something: held airspace, or any with Shift.
                 map.on('mousemove', 'sectors-fill', (e) => {
-                    const clickable = e.originalEvent?.shiftKey || e.features.some((f) => state.owners.has(f.properties.name));
+                    const clickable = e.originalEvent?.shiftKey || e.features.some((f) => isHeld(f.properties.name));
                     map.getCanvas().style.cursor = clickable ? 'pointer' : '';
                 });
                 map.on('mouseleave', 'sectors-fill', () => { map.getCanvas().style.cursor = ''; });
@@ -698,7 +705,7 @@
                 if (!sectorOn(name)) return false;
                 if (focus?.sectors.has(name) || focus?.selected === name) return true;
                 const shape = state.shapes.get(name);
-                const filters = state.owners.has(name) ? state.online : state.offline;
+                const filters = isHeld(name) ? state.online : state.offline;
                 return !!filters[categoryOf(shape?.type)];
             }
 
@@ -716,11 +723,11 @@
                 // they are still there with Shift held.
                 const withOffline = !!e.originalEvent?.shiftKey;
                 const names = [...new Set(hits.map((f) => f.properties.name))]
-                    .filter((n) => state.shapes.has(n) && sectorShown(n, focus) && (withOffline || state.owners.has(n)));
+                    .filter((n) => state.shapes.has(n) && sectorShown(n, focus) && (withOffline || isHeld(n)));
                 if (!names.length) { select(null); return; }
                 names.sort((a, b) => {
                     const sa = state.shapes.get(a), sb = state.shapes.get(b);
-                    return (state.owners.has(b) - state.owners.has(a)) || (sb.rank - sa.rank) || (sa.area - sb.area);
+                    return (isHeld(b) - isHeld(a)) || (sb.rank - sa.rank) || (sa.area - sb.area);
                 });
                 clickStack = names;
                 select({ kind: 'sector', id: names[0] }, { fly: false });
@@ -781,7 +788,7 @@
                     if (point) map.easeTo({ center: point, zoom: Math.max(map.getZoom(), 6), duration: 700 });
                     return;
                 }
-                const names = state.selection.kind === 'sector' && !state.owners.has(state.selection.id)
+                const names = state.selection.kind === 'sector' && !isHeld(state.selection.id)
                     ? [state.selection.id] : [...focus.sectors];
                 let bbox = null;
                 for (const name of names) {
@@ -819,11 +826,13 @@
                 for (const [name, shape] of state.shapes) {
                     if (!shape.drawn) continue;
                     const owner = state.owners.get(name);
+                    const ext = !owner && state.external.has(name);
                     const hl = !!focus && focus.sectors.has(name);
                     const next = {
                         owned: !!owner,
+                        ext,
                         show: sectorShown(name, focus),
-                        colour: hl ? (focus.colour ?? HIGHLIGHT_COLOUR) : (owner ? INFILL_COLOUR : UNSTAFFED_COLOUR),
+                        colour: hl ? (focus.colour ?? HIGHLIGHT_COLOUR) : (ext ? EXTERNAL_COLOUR : owner ? INFILL_COLOUR : UNSTAFFED_COLOUR),
                         hl,
                         dim: !!focus && !focus.noDim && !hl,
                         sel: !!focus && focus.selected === name,
@@ -843,6 +852,8 @@
                 if (!s.show) return 0;
                 if (s.sel) return 0.5;
                 if (s.hl) return 0.4;
+                // Held without the plugin: only a tinge, so it reads as held but not on OzServer.
+                if (s.ext) return s.dim ? 0.05 : 0.15;
                 if (s.dim) return s.owned ? 0.12 : 0;
                 return s.owned ? 0.35 : 0;
             }
@@ -1320,21 +1331,25 @@
                         </button>`;
                 }).join('');
 
-                // Live only: controllers the VATSIM datafeed shows on a known position who are not
-                // using OzServer - their airspace cannot appear as held above.
+                // Controllers connected without the plugin: the airspace they work (the API's external
+                // holdings, any server) shaded faintly, or on live the VATSIM datafeed's position.
                 const onOz = new Set((state.ops?.controllers ?? []).map((c) => c.callsign));
+                const held = new Map((state.ops?.external_controllers ?? []).map((c) => [c.callsign, c]));
                 const others = state.vatsimControllers.filter((c) => !c.is_ozserver && !onOz.has(c.callsign) && regionOn(c.region));
+                for (const c of held.values()) {
+                    if (!others.some((o) => o.callsign === c.callsign) && c.sectors.some(sectorOn)) others.push({ callsign: c.callsign, frequencies: c.frequencies });
+                }
                 const otherRows = others.map((c) => `
                     <div class="oz-row" style="cursor:default">
-                        <i class="oz-swatch" style="--c:#334155"></i>
+                        <i class="oz-swatch" style="--c:${held.has(c.callsign) ? EXTERNAL_COLOUR : '#334155'}"></i>
                         <div class="oz-main"><div class="oz-title">${esc(c.callsign)}</div>
-                        <div class="oz-sub">${esc(c.sector_name)} · ${esc((c.frequencies ?? []).map(freq).join(', '))}</div></div>
+                        <div class="oz-sub">${held.has(c.callsign) ? esc(held.get(c.callsign).sectors.join(' ')) : esc(c.sector_name ?? '')} · ${esc((c.frequencies ?? []).map(freq).join(', '))}</div></div>
                         <span class="oz-badge bad" title="Not connected through OzServer">no plugin</span>
                     </div>`).join('');
 
                 document.getElementById('oz-controllers').innerHTML =
                     (rows || '<div class="oz-empty">Nobody holds a sector on this server.</div>')
-                    + (otherRows ? `<div class="oz-section-title">On VATSIM without OzServer</div>${otherRows}` : '');
+                    + (otherRows ? `<div class="oz-section-title">Connected without OzServer</div>${otherRows}` : '');
             }
 
             function renderSectorsTab() {
@@ -1531,6 +1546,7 @@
                 if (!s) return `<div class="oz-detail-head"><h2>${esc(name)}</h2><button class="oz-close" data-close>×</button></div><div class="oz-empty">Unknown sector.</div>`;
                 const owner = state.owners.get(name);
                 const c = owner ? state.controllers.get(owner.callsign) : null;
+                const external = owner ? null : state.external.get(name);
                 const requests = (state.ops?.requests ?? []).filter((r) => r.sector === name);
                 const children = s.responsible_sectors ?? [];
                 const parents = state.coveredBy.get(name) ?? [];
@@ -1547,9 +1563,12 @@
                     <dl class="oz-kv">
                         ${s.callsign ? `<dt>Position</dt><dd>${esc(s.callsign)}</dd>` : ''}
                         ${s.frequency ? `<dt>Frequency</dt><dd>${esc(freq(s.frequency))}</dd>` : ''}
-                        <dt>Held by</dt><dd>${owner ? controllerChip(owner.callsign) : '<span style="color:var(--faint)">unstaffed</span>'}</dd>
+                        <dt>Held by</dt><dd>${owner ? controllerChip(owner.callsign)
+                            : external ? `${esc(external.callsign)} <span class="oz-badge bad">no plugin</span>`
+                            : '<span style="color:var(--faint)">unstaffed</span>'}</dd>
                         ${owner?.since ? `<dt>Since</dt><dd>${hhmm(owner.since)} (${ago(owner.since)} ago)</dd>` : ''}
                     </dl>
+                    ${external ? `<div class="oz-note-box warn">Worked by ${esc(external.callsign)} without the OzServer plugin. Nobody on OzServer can claim or request it; coordination and tag handoffs are done manually.</div>` : ''}
                     ${owner && isFlow(owner.callsign) && s.type !== 'FMP' ? '<div class="oz-note-box flow">Held by an FMP as temporary relief cover.</div>' : ''}
                     ${c && c.sectors.length > 1 ? `<div class="oz-block"><h4>${esc(c.callsign)} also holds (${c.sectors.length - 1})</h4>${sectorList(c.sectors.filter((n) => n !== name))}</div>` : ''}
                     ${children.length ? `<div class="oz-block"><h4>Subsectors (combined with this position)</h4>${sectorList(children)}</div>` : ''}
@@ -1728,6 +1747,7 @@
                     diffOps(state.ops, ops);
                     state.ops = ops;
                     state.owners = new Map(ops.ownerships.map((o) => [o.sector, o]));
+                    state.external = new Map((ops.external ?? []).map((h) => [h.sector, h]));
                     state.controllers = new Map(ops.controllers.map((c) => [c.callsign, c]));
                     state.lastUpdate = Date.now();
                     renderAll();
@@ -1784,6 +1804,7 @@
             function resetForServer() {
                 state.ops = null;
                 state.owners = new Map();
+                state.external = new Map();
                 state.controllers = new Map();
                 state.flights = [];
                 state.flightsByCallsign = new Map();
