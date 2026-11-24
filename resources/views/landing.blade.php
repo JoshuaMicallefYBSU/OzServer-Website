@@ -233,6 +233,7 @@
                 <a href="#features">Features</a>
                 <a href="#how-it-works">How it works</a>
                 <a href="#for-developers">Developers</a>
+                <a href="/how-to">How-to guide</a>
             </nav>
             <a href="/live-map" target="_blank" rel="noopener" class="oz-btn on">Live map &rarr;</a>
         </header>
@@ -245,6 +246,7 @@
                 <div class="oz-actions">
                     <a href="/live-map" target="_blank" rel="noopener" class="oz-btn on">Open the live map</a>
                     <a href="#how-it-works" class="oz-btn">How it works</a>
+                    <a href="/how-to" class="oz-btn">How-to guide</a>
                 </div>
             </section>
 

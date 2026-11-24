@@ -10,6 +10,9 @@ Route::get('/live-map', function () {
     return view('map');
 });
 
+// The controller guide. The plugin's "OzServer How-To" menu button opens it in vatSys's browser.
+Route::view('/how-to', 'how-to');
+
 // The map used to live at /ops, then /map; old links and bookmarks still land on it, query string
 // included.
 foreach (['/ops', '/map'] as $oldMapUrl) {
