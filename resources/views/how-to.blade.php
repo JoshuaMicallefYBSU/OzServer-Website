@@ -146,7 +146,7 @@
             // A screenshot from public/images/how-to/. One not yet added shows, outside production,
             // as a slot saying what belongs there; in production it is simply left out.
             $shot = function (string $file, string $caption) {
-                $relative = 'images/how-to/'.$file;
+                $relative = 'pubic/images/how-to/'.$file;
                 $absolute = public_path($relative);
                 if (is_file($absolute)) {
                     $src = '/'.$relative.'?v='.filemtime($absolute);
