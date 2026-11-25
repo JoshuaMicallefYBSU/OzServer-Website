@@ -58,6 +58,34 @@ class ExampleTest extends TestCase
             ->assertSee('Answer a request');
     }
 
+    public function test_every_window_picture_is_on_the_page_from_the_start(): void
+    {
+        Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);
+
+        // Picking a window must fetch nothing: each one is an <img> in the page, loaded eagerly.
+        $html = $this->get('/')->assertOk()->getContent();
+
+        $this->assertSame(6, substr_count($html, 'role="tabpanel"'));
+        $this->assertSame(6, substr_count($html, 'loading="eager"'));
+        foreach (['sectors-window', 'request-prompt', 'incoming-request', 'take-sectors-disconnected', 'arrival-list', 'update-window'] as $picture) {
+            $this->assertStringContainsString('src="/images/how-to/'.$picture.'.png?v=', $html);
+        }
+    }
+
+    public function test_pages_are_gzipped_for_a_browser_that_accepts_it(): void
+    {
+        Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);
+
+        $plain = $this->get('/');
+        $plain->assertOk()->assertHeaderMissing('Content-Encoding');
+
+        $packed = $this->withHeaders(['Accept-Encoding' => 'gzip, deflate, br'])->get('/');
+        $packed->assertOk()->assertHeader('Content-Encoding', 'gzip');
+
+        $this->assertSame($plain->getContent(), gzdecode($packed->getContent()));
+        $this->assertStringContainsString('Accept-Encoding', (string) $packed->headers->get('Vary'));
+    }
+
     public function test_every_page_links_the_site_icon_where_public_is_served(): void
     {
         Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);

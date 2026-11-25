@@ -5,6 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>OzServer | vatSys Server Management</title>
         <meta name="description" content="OzServer keeps vatSys sector ownership, tags and ATIS in sync across every VATPAC controller.">
+        <meta name="theme-color" content="#060A13">
         <meta property="og:title" content="OzServer">
         <meta property="og:description" content="One live record of who is working which sector across VATSIM Australia.">
         @if ($social = \App\Support\PublicUrl::file('images/logo/social.png'))
@@ -12,19 +13,19 @@
         <meta name="twitter:card" content="summary_large_image">
         @endif
         @include('partials.icons')
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+        @include('partials.fonts')
         <style>
-            /* One full-bleed live chart of Australian airspace carries the page. Everything after it
-               is quiet, single-column bands on a 1180px measure, with the plugin's own windows on
-               one dark stage. */
+            /* One live chart of Australian airspace opens the page, beside the pitch. Everything
+               after it is quiet bands on one measure that widens with the screen, and the plugin's
+               own windows shown at the size vatSys draws them. */
             :root {
-                /* The chart, the stage and the install band are the scope at night in both themes. */
+                /* The chart, the plinth behind each window and the install band are the scope at
+                   night in both themes. */
                 --night: #060A13;
                 --land: #111A2D;
                 --coast: #41557F;
                 --grid: rgba(150, 172, 225, .11);
+                --night-rule: rgba(150, 172, 225, .16);
                 --ice: #EEF2FB;
                 --ice-dim: #9AA6C2;
                 --plugin: #5B8CFF;      /* a sector held by a controller on OzServer */
@@ -38,14 +39,20 @@
 
                 --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
                 --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-                --measure: 1180px;
+
+                /* One measure for every band: 1180px on a laptop, wider on a wide screen, never
+                   past 1440px. */
+                --measure: clamp(1180px, 92vw, 1440px);
+                --gutter: clamp(20px, 3.2vw, 40px);
+                --band: clamp(56px, 6vw, 96px);
+                --radius: 10px;
             }
             @media (prefers-color-scheme: dark) {
                 :root { --bg: #0A0E18; --fg: #EEF2FB; --muted: #96A1BA; --rule: #1E273A; --accent: #86A6FF; color-scheme: dark; }
             }
 
             * { box-sizing: border-box; }
-            html { scroll-behavior: smooth; }
+            html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
             body { margin: 0; background: var(--bg); color: var(--fg); font: 400 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
             a { color: inherit; }
             img { max-width: 100%; }
@@ -53,20 +60,26 @@
             h1, h2, h3, p, ol, ul, dl, figure { margin: 0; }
             h1, h2, h3 { text-wrap: balance; font-weight: 600; }
             :focus-visible { outline: 2px solid var(--plugin); outline-offset: 3px; border-radius: 4px; }
-            .wrap { max-width: var(--measure); margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+            .wrap { max-width: var(--measure); margin: 0 auto; padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
 
-            .btn { display: inline-flex; align-items: center; height: 46px; padding: 0 20px; border-radius: 10px; font: 500 15.5px/1 var(--sans); text-decoration: none; white-space: nowrap; transition: transform .15s ease, background-color .15s ease; }
+            .btn { display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: var(--radius); font: 500 15.5px/1 var(--sans); text-decoration: none; white-space: nowrap; transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease; }
             .btn:hover { transform: translateY(-1px); }
+            .btn:active { transform: none; }
             .btn-light { background: var(--ice); color: #070B14; }
+            .btn-light:hover { background: #fff; }
             .btn-ghost { color: var(--ice); box-shadow: inset 0 0 0 1px rgba(238, 242, 251, .28); }
-            .btn-ghost:hover { background: rgba(238, 242, 251, .08); }
+            .btn-ghost:hover { background: rgba(238, 242, 251, .08); box-shadow: inset 0 0 0 1px rgba(238, 242, 251, .45); }
+            .btn-small { height: 38px; padding: 0 16px; font-size: 14.5px; }
 
             /* ---------- hero ---------- */
             .hero { position: relative; background: var(--night); color: var(--ice); isolation: isolate; overflow: hidden; }
             .hero-top { position: relative; overflow: hidden; }
-            .chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+            /* The chart keeps to the right of the pitch, and to the middle 1760px of a very wide
+               screen. Its ocean and graticule run on past its own box to the hero's edges. */
+            .chart-box { position: absolute; top: 0; bottom: 0; right: max(0px, calc((100% - 1760px) / 2)); width: min(58%, 1020px); }
+            .chart { display: block; width: 100%; height: 100%; overflow: visible; }
             .chart .ocean { fill: var(--night); }
-            .chart .graticule { stroke: rgba(150, 172, 225, .055); stroke-width: 1; fill: none; }
+            .chart .graticule { stroke: rgba(150, 172, 225, .055); stroke-width: 1; fill: none; vector-effect: non-scaling-stroke; }
             .chart .land { fill: var(--land); stroke: var(--coast); stroke-width: .9; stroke-linejoin: round; }
             .chart .sector { fill: none; stroke: var(--grid); stroke-width: .8; }
             .chart .held { stroke-width: .8; stroke-linejoin: round; }
@@ -78,33 +91,31 @@
             .chart .ac.on .sym { fill: #fff; }
             .chart .ac.on .ring { stroke: var(--ice); }
 
-            .scrim { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(6, 10, 19, .92) 0%, rgba(6, 10, 19, .7) 30%, rgba(6, 10, 19, 0) 50%); pointer-events: none; }
-            .hero-inner { position: relative; display: flex; flex-direction: column; min-height: clamp(600px, 76vh, 800px); pointer-events: none; }
+            .hero-inner { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: clamp(540px, 70vh, 760px); pointer-events: none; }
             .hero-inner > * { pointer-events: auto; }
 
-            .nav { display: flex; align-items: center; gap: 32px; height: 72px; }
+            .nav { display: flex; align-items: center; gap: 32px; height: 68px; }
             .brand { display: inline-flex; align-items: center; gap: 10px; font: 600 18px/1 var(--sans); letter-spacing: -.01em; text-decoration: none; }
             .brand svg { width: 24px; height: 24px; }
             .nav-links { display: flex; gap: 28px; margin-left: auto; font-size: 15px; }
             .nav-links a { color: var(--ice-dim); text-decoration: none; transition: color .15s; }
             .nav-links a:hover { color: var(--ice); }
-            .nav .btn { height: 38px; padding: 0 16px; font-size: 14.5px; }
 
-            .pitch { margin-top: auto; margin-bottom: auto; padding-block: 40px; max-width: 520px; pointer-events: none; }
+            .pitch { margin-block: auto; padding-block: 32px 44px; max-width: min(540px, 38vw); pointer-events: none; }
             .pitch > * { pointer-events: auto; }
-            .pitch h1 { font-size: clamp(42px, 5.3vw, 74px); line-height: 1; letter-spacing: -.038em; }
-            .pitch p { margin-top: 22px; font-size: 18.5px; line-height: 1.5; color: #C3CBDD; max-width: 30em; }
-            .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+            .pitch h1 { font-size: clamp(40px, 4.6vw, 72px); line-height: 1; letter-spacing: -.038em; }
+            .pitch p { margin-top: 22px; font-size: clamp(17px, 1.3vw, 19px); line-height: 1.5; color: #C3CBDD; max-width: 29em; }
+            .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
 
-            .rail { border-top: 1px solid rgba(150, 172, 225, .16); }
-            .rail-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 44px; padding-block: 18px; }
-            .live { display: inline-flex; align-items: center; gap: 9px; font: 500 13.5px/1 var(--mono); color: var(--ice-dim); font-variant-numeric: tabular-nums; }
-            .live i { width: 8px; height: 8px; border-radius: 50%; background: #5A6377; }
+            .rail { position: relative; border-top: 1px solid var(--night-rule); background: var(--night); }
+            .rail-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 40px; padding-block: 16px; }
+            .live { display: inline-flex; align-items: center; gap: 9px; min-width: 11.5em; font: 500 13.5px/1 var(--mono); color: var(--ice-dim); font-variant-numeric: tabular-nums; }
+            .live i { width: 8px; height: 8px; border-radius: 50%; background: #5A6377; flex: none; }
             .live.on { color: var(--ice); }
             .live.on i { background: #56D69A; animation: beat 2.4s ease-out infinite; }
             @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(86, 214, 154, .6); } 70% { box-shadow: 0 0 0 9px rgba(86, 214, 154, 0); } 100% { box-shadow: 0 0 0 0 rgba(86, 214, 154, 0); } }
             .fig { display: flex; align-items: baseline; gap: 9px; font-size: 14.5px; color: var(--ice-dim); }
-            .fig b { font: 500 22px/1 var(--sans); letter-spacing: -.02em; color: var(--ice); font-variant-numeric: tabular-nums; }
+            .fig b { min-width: 1ch; font: 500 21px/1 var(--sans); letter-spacing: -.02em; color: var(--ice); font-variant-numeric: tabular-nums; }
             .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-left: auto; font-size: 13.5px; color: var(--ice-dim); }
             .legend span { display: inline-flex; align-items: center; gap: 8px; }
             .legend i { width: 14px; height: 10px; border-radius: 2px; }
@@ -116,114 +127,152 @@
             .chip small { font-size: inherit; color: var(--ice-dim); }
             .chip.external { box-shadow: inset 0 0 0 1px rgba(230, 190, 124, .55); }
             .chip.plugin { box-shadow: inset 0 0 0 1px rgba(132, 168, 255, .7); }
-            .tip { padding: 8px 11px; border-radius: 8px; background: #EEF2FB; color: #070B14; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); opacity: 0; transition: opacity .12s; font-variant-numeric: tabular-nums; }
+            .tip { z-index: 2; padding: 8px 11px; border-radius: 8px; background: #EEF2FB; color: #070B14; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); opacity: 0; transition: opacity .12s; font-variant-numeric: tabular-nums; }
             .tip.show { opacity: 1; }
             .tip b { font-weight: 500; }
             .tip span { color: #4B556B; }
 
             /* ---------- bands ---------- */
-            .band { padding-block: clamp(72px, 9vw, 128px); }
+            .band { padding-block: var(--band); }
             .band + .band { border-top: 1px solid var(--rule); }
-            h2 { font-size: clamp(30px, 3.5vw, 46px); line-height: 1.06; letter-spacing: -.03em; }
-            .lede { margin-top: 18px; color: var(--muted); max-width: 34em; }
+            h2 { font-size: clamp(30px, 3vw, 44px); line-height: 1.06; letter-spacing: -.03em; }
+            .lede { margin-top: 16px; color: var(--muted); max-width: 34em; }
 
-            .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 96px); align-items: start; }
+            .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 6vw, 104px); align-items: start; }
             .split > * { min-width: 0; }
+            .split h2 { max-width: 17em; }
             .points { list-style: none; padding: 0; display: grid; }
-            .points li { padding-block: 22px; border-top: 1px solid var(--rule); display: grid; gap: 6px; }
-            .points li:last-child { border-bottom: 1px solid var(--rule); }
+            .points li { padding-block: 20px; border-top: 1px solid var(--rule); display: grid; gap: 6px; }
+            .points li:first-child { border-top: 0; padding-top: 4px; }
             .points h3 { font-size: 18.5px; letter-spacing: -.012em; }
             .points p { color: var(--muted); max-width: 36em; }
 
-            /* the plugin's windows */
-            .tabs { display: flex; gap: 6px 30px; margin-top: 40px; border-bottom: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
-            .tabs::-webkit-scrollbar { display: none; }
-            .tabs button { appearance: none; background: none; border: 0; padding: 0 0 14px; margin-bottom: -1px; font: 500 15.5px/1.2 var(--sans); color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; transition: color .15s; }
+            /* ---------- the plugin's windows ---------- */
+            .windows { display: grid; grid-template-columns: minmax(250px, 310px) minmax(0, 1fr); gap: clamp(28px, 3.4vw, 52px); align-items: start; }
+            .windows > * { min-width: 0; }
+            .tabs { margin-top: 28px; display: grid; align-content: start; }
+            .tabs button { appearance: none; display: block; width: 100%; padding: 14px 0; border: 0; border-top: 1px solid var(--rule); background: none; color: var(--muted); font: inherit; text-align: left; cursor: pointer; transition: color .15s; }
             .tabs button:hover { color: var(--fg); }
-            .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); }
-            .about { margin-top: 28px; min-height: 5.2em; max-width: 38em; }
-            .about h3 { font-size: 20px; letter-spacing: -.015em; }
-            .about p { margin-top: 8px; color: var(--muted); }
-            .stage { margin-top: 28px; background: var(--night); border-radius: 18px; box-shadow: inset 0 0 0 1px rgba(150, 172, 225, .14); display: grid; place-items: center; min-height: 560px; padding: clamp(18px, 4vw, 48px); overflow: hidden; position: relative; }
-            .stage img { display: block; max-width: 100%; height: auto; box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 4px 14px rgba(0, 0, 0, .5); }
-            .stage figcaption { position: absolute; left: 20px; bottom: 16px; font: 400 12.5px/1 var(--mono); color: #6E7A96; }
+            .tabs button[aria-selected="true"] { color: var(--fg); cursor: default; }
+            .tabs .name { display: block; font: 500 17px/1.3 var(--sans); letter-spacing: -.01em; }
+            .tabs .more { display: none; margin-top: 6px; font-size: 15.5px; line-height: 1.5; color: var(--muted); max-width: 32em; }
+            .tabs button[aria-selected="true"] .more { display: block; }
+            .about { display: none; }
 
-            /* a session */
-            .steps { list-style: none; padding: 0; margin-top: 48px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); counter-reset: step; }
-            .steps li { counter-increment: step; padding-top: 22px; border-top: 1px solid var(--fg); display: grid; gap: 8px; align-content: start; }
+            /* Every window is on the page from the start, one on top of another in the same cell, so
+               picking one shows it at once and the tallest sets the height for all of them. */
+            .viewer { display: grid; place-items: center; }
+            .frame { grid-area: 1 / 1; min-width: 0; max-width: 100%; padding: clamp(10px, 1.4vw, 18px); border-radius: 12px; background: var(--night); box-shadow: inset 0 0 0 1px rgba(150, 172, 225, .14); opacity: 0; visibility: hidden; transition: opacity .18s ease, visibility 0s linear .18s; }
+            .frame.shown { opacity: 1; visibility: visible; transition: opacity .18s ease; }
+            .frame img { display: block; max-width: 100%; height: auto; box-shadow: 0 14px 40px rgba(0, 0, 0, .55); }
+
+            /* ---------- a session ---------- */
+            .steps { list-style: none; padding: 0; margin-top: 40px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 64px); counter-reset: step; }
+            .steps li { counter-increment: step; padding-top: 20px; border-top: 1px solid var(--rule); display: grid; gap: 8px; align-content: start; }
             .steps li::before { content: counter(step); font: 500 14px/1 var(--mono); color: var(--muted); }
-            .steps h3 { font-size: 21px; letter-spacing: -.018em; margin-top: 10px; }
-            .steps p { color: var(--muted); }
+            .steps h3 { font-size: 21px; letter-spacing: -.018em; margin-top: 8px; }
+            .steps p { color: var(--muted); max-width: 30em; }
 
-            /* install */
+            /* ---------- install ---------- */
             .install { background: var(--night); color: var(--ice); }
-            .install .wrap { padding-block: clamp(72px, 9vw, 120px); }
+            .install .wrap { padding-block: var(--band); }
             .install .lede { color: #B4BDD2; }
-            .install ol { margin-top: 26px; padding: 0; list-style: none; counter-reset: i; display: grid; gap: 12px; color: #D5DBEA; }
+            .install ol { margin-top: 24px; padding: 0; list-style: none; counter-reset: i; display: grid; gap: 12px; color: #D5DBEA; }
             .install ol li { counter-increment: i; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: baseline; }
             .install ol li::before { content: counter(i); font: 500 13.5px/1 var(--mono); color: var(--ice-dim); }
             .install code { font: 500 .88em/1 var(--mono); color: var(--ice); background: rgba(150, 172, 225, .12); padding: 3px 7px; border-radius: 5px; overflow-wrap: anywhere; }
-            .release { border-radius: 16px; box-shadow: inset 0 0 0 1px rgba(150, 172, 225, .18); padding: 28px; display: grid; gap: 18px; background: rgba(150, 172, 225, .04); }
+            .release { display: grid; gap: 24px; max-width: 520px; justify-self: end; width: 100%; }
             .release dl { display: grid; }
-            .release dl div { display: flex; justify-content: space-between; gap: 16px; padding-block: 11px; border-top: 1px solid rgba(150, 172, 225, .14); font-size: 15px; }
-            .release dl div:last-child { padding-bottom: 0; }
-            .release dl div.first { border-top: 0; padding-top: 0; }
+            .release dl div { display: flex; justify-content: space-between; gap: 16px; padding-block: 12px; border-top: 1px solid var(--night-rule); font-size: 15.5px; }
+            .release dl div:last-child { border-bottom: 1px solid var(--night-rule); }
             .release dt { color: var(--ice-dim); }
-            .release dd { margin: 0; font: 500 14.5px/1.4 var(--mono); text-align: right; }
-            .release .cta { margin-top: 4px; }
+            .release dd { margin: 0; font: 500 14.5px/1.5 var(--mono); text-align: right; }
+            .release .cta { margin-top: 0; }
 
-            footer { padding-block: 34px; font-size: 14px; color: var(--muted); }
+            footer { padding-block: 30px; font-size: 14px; color: var(--muted); }
             footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; }
             .foot-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--fg); }
             .foot-brand svg { width: 18px; height: 18px; flex: none; }
-            footer a { text-decoration: none; }
+            footer a { text-decoration: none; transition: color .15s; }
             footer a:hover { color: var(--fg); }
             footer .note { margin-left: auto; }
 
-            @media (max-width: 900px) {
+            /* ---------- laptops and tablets on their side: the windows get the full width ---------- */
+            @media (max-width: 1340px) {
+                /* Beside the list the largest window would be too small to read. Their names go in a
+                   row to swipe, then the words about the one picked, then the window itself. */
+                .windows { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+                .tabs { margin-top: 24px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); scroll-padding-inline: var(--gutter); }
+                .tabs::-webkit-scrollbar { display: none; }
+                .tabs button { width: auto; flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule); white-space: nowrap; }
+                .tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); box-shadow: none; }
+                .tabs .name { font-size: 15px; }
+                .tabs button[aria-selected="true"] .more { display: none; }
+                .about { display: block; margin-top: 20px; }
+                .about h3 { font-size: 19px; letter-spacing: -.015em; }
+                .about p { margin-top: 6px; color: var(--muted); max-width: 40em; }
+                /* Under its words rather than centred in the room kept for the tallest window. */
+                .viewer { place-items: start; }
+            }
+
+            /* ---------- tablets and phones: one column, the chart under the pitch ---------- */
+            @media (max-width: 960px) {
                 .nav-links { display: none; }
                 .nav .btn { margin-left: auto; }
                 .hero-top { display: flex; flex-direction: column; }
                 .hero-inner { min-height: 0; order: 1; }
-                .chart { position: relative; inset: auto; height: auto; aspect-ratio: 850 / 760; order: 2; }
-                .scrim { display: none; }
-                .pitch { padding-block: 28px 36px; max-width: none; }
-                .legend { margin-left: 0; }
-                .split { grid-template-columns: 1fr; }
-                .steps { grid-template-columns: 1fr; gap: 32px; }
-                .stage { min-height: 0; gap: 14px; justify-items: start; }
-                .stage figcaption { position: static; }
-                footer .note { margin-left: 0; }
+                .chart-box { position: relative; right: auto; width: 100%; max-width: 760px; margin: 0 auto; aspect-ratio: 850 / 760; order: 2; }
+                .pitch { padding-block: 20px 28px; max-width: 34em; }
+                .pitch h1 { font-size: clamp(38px, 8vw, 60px); }
+                .rail-inner { gap: 12px 28px; }
+                .live { flex-basis: 100%; }
+                .legend { margin-left: 0; flex-basis: 100%; }
+                .split { grid-template-columns: 1fr; gap: 28px; }
+                .points li:first-child { border-top: 1px solid var(--rule); padding-top: 20px; }
+                .release { justify-self: start; }
+
+                .steps { grid-template-columns: 1fr; gap: 28px; margin-top: 32px; }
+                footer .note { margin-left: 0; flex-basis: 100%; }
+            }
+            @media (max-width: 700px) {
+                /* On a phone the tall, narrow windows would set the height for the wide ones and leave
+                   a gap under them, so nothing is drawn taller than the wide ones come out. */
+                .frame img { width: auto; max-height: 58vw; }
+            }
+            @media (max-width: 520px) {
+                body { font-size: 16px; }
+                .cta .btn { flex: 1 1 auto; justify-content: center; }
+                .fig { flex: 1 1 40%; }
+                .release dl div { flex-direction: column; gap: 2px; }
+                .release dd { text-align: left; }
             }
             @media (prefers-reduced-motion: reduce) {
                 html { scroll-behavior: auto; }
                 .live.on i { animation: none; }
-                .btn { transition: none; }
+                .btn, .frame, .frame.shown { transition: none; }
             }
         </style>
     </head>
     <body>
         <header class="hero" id="top">
             <div class="hero-top">
-                <svg class="chart" id="chart" viewBox="431 30 950 840" preserveAspectRatio="xMaxYMid meet" role="img" aria-label="Chart of Australian airspace showing staffed sectors and aircraft">
-                    <rect class="ocean" x="-400" y="-400" width="2400" height="1800"/>
-                    {{-- A line every ten degrees: 90 E to 160 E, 10 S to 40 S. --}}
-                    <path class="graticule" d="@foreach (range(90, 160, 10) as $lon)M{{ round(($lon - $projection['lon0']) * $projection['c'] * $projection['k'], 1) }} -200V1200 @endforeach @foreach (range(-10, -40, 10) as $lat)M-400 {{ round(($projection['lat0'] - $lat) * $projection['k'], 1) }}H2000 @endforeach"/>
-                    <path class="land" d="{{ $coastPath }}"/>
-                    <g>
-                        @foreach ($sectorPaths as $path)
-                        <path class="sector" d="{{ $path }}"/>
-                        @endforeach
-                    </g>
-                    <g id="held"></g>
-                    <g id="traffic"></g>
-                </svg>
-                <div class="scrim"></div>
+                <div class="chart-box">
+                    <svg class="chart" id="chart" viewBox="431 30 950 840" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Chart of Australian airspace showing staffed sectors and aircraft">
+                        <rect class="ocean" x="-4000" y="-3000" width="9400" height="6900"/>
+                        {{-- A line every ten degrees, well past the chart's own edges: on a wide screen
+                             the ocean runs on to the hero's. --}}
+                        <path class="graticule" d="@foreach (range(-10, 240, 10) as $lon)M{{ round(($lon - $projection['lon0']) * $projection['c'] * $projection['k'], 1) }} -3000V3900 @endforeach @foreach (range(40, -110, 10) as $lat)M-4000 {{ round(($projection['lat0'] - $lat) * $projection['k'], 1) }}H5400 @endforeach"/>
+                        <path class="land" d="{{ $coastPath }}"/>
+                        <path class="sector" d="{{ $sectorsPath }}"/>
+                        <g id="held"></g>
+                        <g id="traffic"></g>
+                    </svg>
+                </div>
 
                 <div class="hero-inner wrap">
                     <nav class="nav" aria-label="Main">
                         <a class="brand" href="/">
-                            <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5.43 22.86A12.6 12.6 0 0 1 22.86 5.43" fill="none" stroke="#EEF2FB" stroke-width="2.8" stroke-linecap="round"/><path d="M26.57 9.14A12.6 12.6 0 0 1 9.14 26.57" fill="none" stroke="#5B8CFF" stroke-width="2.8" stroke-linecap="round"/><path transform="translate(16 16) scale(0.56)" d="M0-4C0-4 12-12 4 0C4 0 12 12 0 4C0 4-12 12-4 0C-4 0-12-12 0-4Z" fill="#EEF2FB"/></svg>
+                            @include('partials.mark')
                             OzServer
                         </a>
                         <div class="nav-links">
@@ -231,7 +280,7 @@
                             <a href="/how-to">How-To</a>
                             <a href="#windows">In vatSys</a>
                         </div>
-                        <a class="btn btn-light" href="#install">Install</a>
+                        <a class="btn btn-light btn-small" href="#install">Install</a>
                     </nav>
 
                     <div class="pitch">
@@ -258,7 +307,7 @@
                 </div>
             </div>
             <div id="chips"></div>
-            <div class="tip" id="tip" role="status"></div>
+            <div class="tip" id="tip"></div>
         </header>
 
         <main>
@@ -278,23 +327,34 @@
 
             @if (count($windows) > 0)
             <section class="band" id="windows">
-                <div class="wrap">
-                    <h2>It lives inside vatSys.</h2>
-                    <p class="lede">These are the plugin's own windows, drawn by vatSys with the Australia profile's colours.</p>
+                <div class="wrap windows">
+                    <div>
+                        <h2>It lives inside vatSys.</h2>
+                        <p class="lede">These are the plugin's own windows, drawn by vatSys with the Australia profile's colours.</p>
 
-                    <div class="tabs" role="tablist" aria-label="Plugin windows">
+                        <div class="tabs" role="tablist" aria-label="Plugin windows" aria-orientation="vertical">
+                            @foreach ($windows as $index => $window)
+                            <button type="button" role="tab" id="tab-{{ $index }}" aria-controls="window-{{ $index }}" aria-selected="{{ $index === 0 ? 'true' : 'false' }}" tabindex="{{ $index === 0 ? '0' : '-1' }}">
+                                <span class="name">{{ $window['tab'] }}</span>
+                                <span class="more">{{ $window['text'] }}</span>
+                            </button>
+                            @endforeach
+                        </div>
+                        {{-- Shown in place of the words under each name where the names run in a row. --}}
+                        <div class="about" id="about">
+                            <h3>{{ $windows[0]['title'] }}</h3>
+                            <p>{{ $windows[0]['text'] }}</p>
+                        </div>
+                    </div>
+
+                    <div class="viewer">
                         @foreach ($windows as $index => $window)
-                        <button type="button" role="tab" id="tab-{{ $index }}" aria-controls="stage" aria-selected="{{ $index === 0 ? 'true' : 'false' }}" tabindex="{{ $index === 0 ? '0' : '-1' }}">{{ $window['tab'] }}</button>
+                        <figure class="frame{{ $index === 0 ? ' shown' : '' }}" id="window-{{ $index }}" role="tabpanel" aria-labelledby="tab-{{ $index }}" data-title="{{ $window['title'] }}" data-text="{{ $window['text'] }}">
+                            {{-- All of them are fetched with the page, the first ahead of the rest. --}}
+                            <img src="{{ $window['src'] }}" alt="{{ $window['alt'] }}" width="{{ $window['w'] }}" height="{{ $window['h'] }}" loading="eager" decoding="async" fetchpriority="{{ $index === 0 ? 'auto' : 'low' }}">
+                        </figure>
                         @endforeach
                     </div>
-                    <div class="about" id="about" aria-live="polite">
-                        <h3>{{ $windows[0]['title'] }}</h3>
-                        <p>{{ $windows[0]['text'] }}</p>
-                    </div>
-                    <figure class="stage" id="stage" role="tabpanel">
-                        <img id="shot" src="{{ $windows[0]['src'] }}" alt="{{ $windows[0]['alt'] }}" width="{{ $windows[0]['w'] }}" height="{{ $windows[0]['h'] }}">
-                        <figcaption id="shot-name">{{ $windows[0]['caption'] }}</figcaption>
-                    </figure>
                 </div>
             </section>
             @endif
@@ -328,7 +388,7 @@
                         {{-- Filled from the API's /plugin/release; left out while that has not answered. --}}
                         <div id="release-version" hidden><dt>Latest release</dt><dd></dd></div>
                         <div id="release-date" hidden><dt>Released</dt><dd></dd></div>
-                        <div class="first" id="release-fits"><dt>Works with</dt><dd>vatSys, Australia and Pacific profiles</dd></div>
+                        <div><dt>Works with</dt><dd>vatSys, Australia and Pacific profiles</dd></div>
                     </dl>
                     <div class="cta">
                         <a class="btn btn-light" href="https://github.com/JoshuaMicallefYBSU/OzServer-Plugin/releases/latest">Download the zip</a>
@@ -341,7 +401,7 @@
         <footer>
             <div class="wrap">
                 <span class="foot-brand">
-                    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5.43 22.86A12.6 12.6 0 0 1 22.86 5.43" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><path d="M26.57 9.14A12.6 12.6 0 0 1 9.14 26.57" fill="none" stroke="var(--accent)" stroke-width="2.8" stroke-linecap="round"/><path transform="translate(16 16) scale(0.56)" d="M0-4C0-4 12-12 4 0C4 0 12 12 0 4C0 4-12 12-4 0C-4 0-12-12 0-4Z" fill="currentColor"/></svg>
+                    @include('partials.mark', ['ring' => 'currentColor', 'held' => 'var(--accent)'])
                     OzServer &mdash; &copy; Joshua Micallef | 2026{{ date('Y') > 2026 ? '-'.date('Y') : '' }}
                 </span>
                 <a href="/live-map">Live map</a>
@@ -354,7 +414,6 @@
         <script>
             const API = @json(rtrim(config('services.ozserver_api.url'), '/'));
             const P = @json($projection);
-            const SHOTS = @json($windows);
 
             const px = lon => (lon - P.lon0) * P.c * P.k, py = lat => (P.lat0 - lat) * P.k;
             const r1 = value => Math.round(value * 10) / 10;
@@ -370,13 +429,14 @@
             // ---------------- the chart: who holds what, and the traffic ----------------
             //
             // Always the real network: this is the public homepage, and /api/v1/map/* takes ?server=
-            // on every request. Read every 15 seconds. Between reads each aircraft is carried along
-            // its heading at its groundspeed, so the picture moves rather than jumping.
+            // on every request. Read every 15 seconds while the page is in view. Between reads each
+            // aircraft is carried along its heading at its groundspeed, so the picture moves rather
+            // than jumping.
             (function () {
                 const svg = el('chart'), hero = document.querySelector('.hero');
                 const held = el('held'), traffic = el('traffic'), chips = el('chips'), tip = el('tip');
                 const NS = 'http://www.w3.org/2000/svg';
-                const narrow = matchMedia('(max-width: 900px)');
+                const narrow = matchMedia('(max-width: 960px)');
                 const still = matchMedia('(prefers-reduced-motion: reduce)');
                 const aircraft = new Map();   // callsign -> { p, g, at }
                 let anchors = [];             // one per chip: where on the chart it sits
@@ -443,7 +503,8 @@
                     const ctm = svg.getScreenCTM(), box = hero.getBoundingClientRect();
                     const point = new DOMPoint(entry.x, entry.y).matrixTransform(ctm);
                     const left = Math.min(Math.max(8, point.x - box.left + 14), box.width - tip.offsetWidth - 8);
-                    tip.style.transform = 'translate(' + Math.round(left) + 'px, ' + Math.round(point.y - box.top - tip.offsetHeight - 12) + 'px)';
+                    const top = Math.max(8, point.y - box.top - tip.offsetHeight - 12);
+                    tip.style.transform = 'translate(' + Math.round(left) + 'px, ' + Math.round(top) + 'px)';
                     tip.classList.add('show');
                 }
                 function hide() {
@@ -517,6 +578,9 @@
                 function count(id, value) { el(id).textContent = value; }
 
                 function refresh() {
+                    // Nobody is looking: the next read waits until they are.
+                    if (document.hidden) return;
+
                     const sectors = getJson('/api/v1/map/sectors?server=live')
                         .then(rows => count('n-sectors', drawSectors(rows)))
                         .catch(error => { count('n-sectors', '–'); throw error; });
@@ -541,16 +605,16 @@
 
                 function frame() {
                     svg.setAttribute('viewBox', narrow.matches ? '455 90 850 760' : '431 30 950 840');
-                    svg.setAttribute('preserveAspectRatio', narrow.matches ? 'xMidYMid meet' : 'xMaxYMid meet');
                     place();
                 }
                 narrow.addEventListener('change', frame);
                 addEventListener('resize', place);
+                document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
                 if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
                 frame();
                 refresh();
                 setInterval(refresh, 15000);
-                setInterval(place, 2000);
+                setInterval(() => { if (!document.hidden) place(); }, 2000);
 
                 const clock = el('clock'), two = value => String(value).padStart(2, '0');
                 function tick() {
@@ -561,30 +625,78 @@
                 setInterval(tick, 1000);
             })();
 
-            // ---------------- the plugin's windows: one at a time, at the size vatSys draws them ----------------
+            // ---------------- the plugin's windows ----------------
+            //
+            // Every picture is already on the page (see .viewer), so picking a window only changes
+            // which one is shown: nothing is fetched and nothing moves.
             (function () {
-                const tabs = [...document.querySelectorAll('.tabs button')];
+                const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
                 if (tabs.length === 0) return;
-                const shot = el('shot'), about = el('about'), caption = el('shot-name');
+                const frames = tabs.map(tab => el(tab.getAttribute('aria-controls')));
+                const about = el('about');
 
                 function pick(index, focus) {
-                    const window = SHOTS[index];
                     tabs.forEach((tab, i) => {
                         tab.setAttribute('aria-selected', i === index ? 'true' : 'false');
                         tab.tabIndex = i === index ? 0 : -1;
+                        frames[i].classList.toggle('shown', i === index);
                     });
-                    shot.src = window.src; shot.width = window.w; shot.height = window.h; shot.alt = window.alt;
-                    about.querySelector('h3').textContent = window.title;
-                    about.querySelector('p').textContent = window.text;
-                    caption.textContent = window.caption;
+                    about.querySelector('h3').textContent = frames[index].dataset.title;
+                    about.querySelector('p').textContent = frames[index].dataset.text;
                     if (focus) tabs[index].focus();
+                    // Where the names run in a row, the one picked is brought into view.
+                    if (tabs[index].scrollIntoView && getComputedStyle(tabs[index].parentElement).overflowX === 'auto')
+                        tabs[index].scrollIntoView({ block: 'nearest', inline: 'nearest' });
                 }
 
                 tabs.forEach((tab, i) => {
                     tab.addEventListener('click', () => pick(i));
                     tab.addEventListener('keydown', event => {
-                        if (event.key === 'ArrowRight') pick((i + 1) % tabs.length, true);
-                        if (event.key === 'ArrowLeft') pick((i + tabs.length - 1) % tabs.length, true);
+                        const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+                        if (step) { event.preventDefault(); pick((i + step + tabs.length) % tabs.length, true); }
+                        if (event.key === 'Home') { event.preventDefault(); pick(0, true); }
+                        if (event.key === 'End') { event.preventDefault(); pick(tabs.length - 1, true); }
+                    });
+                });
+
+                // The words about each window are different lengths. Wherever they are shown - under
+                // each name beside the windows, or in their own block where the names run in a row -
+                // that place is made as tall as its longest state from the start, so picking another
+                // window moves nothing below it. Measured rather than guessed, since it depends on
+                // the width and the font.
+                const list = tabs[0].parentElement;
+                function settle() {
+                    list.style.minHeight = about.style.minHeight = '';
+                    const current = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+                    const heading = about.querySelector('h3'), words = about.querySelector('p');
+                    const inRow = getComputedStyle(about).display !== 'none';
+                    let tallest = 0;
+                    tabs.forEach((tab, i) => {
+                        if (inRow) {
+                            heading.textContent = frames[i].dataset.title;
+                            words.textContent = frames[i].dataset.text;
+                            tallest = Math.max(tallest, about.offsetHeight);
+                        } else {
+                            tabs.forEach((other, j) => other.setAttribute('aria-selected', i === j ? 'true' : 'false'));
+                            tallest = Math.max(tallest, list.offsetHeight);
+                        }
+                    });
+                    tabs.forEach((tab, i) => tab.setAttribute('aria-selected', i === current ? 'true' : 'false'));
+                    heading.textContent = frames[current].dataset.title;
+                    words.textContent = frames[current].dataset.text;
+                    (inRow ? about : list).style.minHeight = tallest + 'px';
+                }
+                let settling = 0;
+                addEventListener('resize', () => { clearTimeout(settling); settling = setTimeout(settle, 120); });
+                if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
+                settle();
+
+                // Decoded ahead of time as well as fetched, so the first showing of each is not the
+                // moment the browser unpacks it.
+                addEventListener('load', () => {
+                    frames.forEach(frame => {
+                        const image = frame.querySelector('img');
+                        if (image && image.decode) image.decode().catch(() => {});
                     });
                 });
             })();
@@ -594,8 +706,6 @@
                 if (!release || !release.version) return;
                 el('release-version').querySelector('dd').textContent = 'v' + release.version;
                 el('release-version').hidden = false;
-                el('release-version').classList.add('first');
-                el('release-fits').classList.remove('first');
                 const published = new Date(release.published_at);
                 if (!isNaN(published)) {
                     el('release-date').querySelector('dd').textContent = published.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });

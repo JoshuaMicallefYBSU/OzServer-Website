@@ -5,6 +5,12 @@
 
     RewriteEngine On
 
+    # Every image and icon a page links carries ?v=<when the file last changed> (see
+    # App\Support\PublicUrl), so a copy fetched that way never goes stale. Marked here, and given
+    # a year in the browser's cache below.
+    RewriteCond %{QUERY_STRING} (^|&)v=[0-9]+
+    RewriteRule \.(png|jpe?g|webp|svg|ico)$ - [E=VERSIONED_ASSET:1]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -22,4 +28,8 @@
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=31536000, immutable" env=VERSIONED_ASSET
 </IfModule>

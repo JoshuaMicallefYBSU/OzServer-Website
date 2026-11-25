@@ -79,16 +79,18 @@ class HomeController extends Controller
     {
         // Australian airspace only: the API serves other regions' sectors too (Mexico), which fall
         // far outside the chart and would be embedded in the page unseen.
-        $sectorPaths = $this->sectorShapes()
+        // One path for all of them: they are drawn alike, and one element costs the browser less
+        // than seventy.
+        $sectorsPath = $this->sectorShapes()
             ->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
                 && ($sector['region'] ?? 'australia') === 'australia'
                 && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true))
             ->map(fn (array $sector) => $this->sectorPath($sector))
             ->filter()
-            ->values();
+            ->implode('');
 
         return view('landing', [
-            'sectorPaths' => $sectorPaths,
+            'sectorsPath' => $sectorsPath,
             'coastPath' => $this->coastPath(),
             'projection' => [
                 'lon0' => self::LON_ORIGIN,
