@@ -473,12 +473,28 @@
                         entry.x = px(lon); entry.y = py(lat);
                         entry.g.setAttribute('transform', 'translate(' + entry.x.toFixed(1) + ' ' + entry.y.toFixed(1) + ') rotate(' + p.heading + ') scale(' + scale.toFixed(2) + ')');
                     }
-                    const box = hero.getBoundingClientRect();
-                    [...chips.children].forEach((chip, i) => {
-                        const at = new DOMPoint(anchors[i].x, anchors[i].y).matrixTransform(ctm);
-                        const left = Math.min(Math.max(8, at.x - box.left - chip.offsetWidth / 2), box.width - chip.offsetWidth - 8);
-                        chip.style.transform = 'translate(' + Math.round(left) + 'px, ' + Math.round(at.y - box.top - chip.offsetHeight / 2) + 'px)';
-                    });
+                    // Each controller's label on their own sector. Two controllers close together
+                    // (a tower inside a centre's airspace) would land on top of each other, so a
+                    // label that would cover one already placed is moved down to sit under it.
+                    const box = hero.getBoundingClientRect(), placed = [];
+                    [...chips.children].map((chip, i) => ({ chip, at: new DOMPoint(anchors[i].x, anchors[i].y).matrixTransform(ctm) }))
+                        .sort((a, b) => a.at.y - b.at.y)
+                        .forEach(({ chip, at }) => {
+                            const width = chip.offsetWidth, height = chip.offsetHeight;
+                            const left = Math.min(Math.max(8, at.x - box.left - width / 2), box.width - width - 8);
+                            let top = at.y - box.top - height / 2;
+                            for (let moved = true; moved;) {
+                                moved = false;
+                                for (const other of placed) {
+                                    if (left < other.left + other.width + 4 && other.left < left + width + 4 && top < other.top + other.height + 3 && other.top < top + height + 3) {
+                                        top = other.top + other.height + 3;
+                                        moved = true;
+                                    }
+                                }
+                            }
+                            placed.push({ left, top, width, height });
+                            chip.style.transform = 'translate(' + Math.round(left) + 'px, ' + Math.round(top) + 'px)';
+                        });
                 }
 
                 let shown = null;
