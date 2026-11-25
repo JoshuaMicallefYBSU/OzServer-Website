@@ -267,11 +267,11 @@
                         <thead><tr><th>Menu</th><th>What it does</th></tr></thead>
                         <tbody>
                             <tr><td><span class="ui">Settings</span> &rarr; <span class="ui">Sectors</span></td><td>Opens the OzServer Sectors window. It replaces vatSys's own <span class="ui">Sectors...</span> window while OzServer is running.</td></tr>
-                            <tr><td><span class="ui">OzServer How-To</span></td><td>A button in the menu bar that opens this guide inside vatSys.</td></tr>
+                            <tr><td><span class="ui">Info</span> &rarr; <span class="ui">OzServer How-To</span></td><td>Opens this guide inside vatSys. Before version 0.3.3 it was a button in the menu bar.</td></tr>
                             <tr><td><span class="ui">Tools</span> &rarr; <span class="ui">Disable OzServer</span></td><td>Switches OzServer off for the rest of the session. See <a href="#disabling">Turning OzServer off</a>.</td></tr>
                         </tbody>
                     </table>
-                    {!! $shot('menu-bar.png', 'The vatSys menu bar with the OzServer How-To button, and Settings opened to show the Sectors entry.') !!}
+                    {!! $shot('menu-bar.png', 'The vatSys menu bar with Info opened to show the OzServer How-To entry, and Settings opened to show the Sectors entry.') !!}
                 </section>
 
                 <section id="logging-on" class="oz-doc">
