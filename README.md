@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/images/logo/ozserver-logo-on-dark.png">
+    <img src="public/images/logo/ozserver-logo-on-light.png" alt="OzServer" width="420">
+  </picture>
+</p>
+
 # OzServer
 
 A central authority server for [vatSys](https://vatsys.net/) that keeps airspace ownership and tag data consistent across every controller on the network — built specifically for the **VATPAC Division**.
