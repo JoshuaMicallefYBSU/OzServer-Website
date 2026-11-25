@@ -6,138 +6,131 @@
         <title>How to use OzServer | OzServer</title>
         @include('partials.icons')
         <meta name="description" content="A controller's guide to the OzServer vatSys plugin: claiming and handing over sectors, requests, tags, disconnects and the Arrival List.">
+        @include('partials.fonts')
         <style>
-            /* Tokens, panels and badges as on the landing page and live map. */
+            /* The guide, in the homepage's own terms: the night band across the top, then a plain
+               document on the page colour with the section list beside it. */
             :root {
-                --bg: rgba(2, 6, 23, 0.9);
-                --line: rgba(255, 255, 255, 0.09);
-                --text: #e2e8f0;
-                --muted: #94a3b8;
-                --faint: #64748b;
-                --accent: #22d3ee;
-                --warn: #fb923c;
-                --bad: #f87171;
-                --good: #4ade80;
-                --flow: #c4b5fd;
+                --night: #060A13;
+                --ice: #EEF2FB;
+                --ice-dim: #9AA6C2;
+                --plugin: #5B8CFF;
+
+                --bg: #F7F8FA;
+                --fg: #0A0F1C;
+                --text: #2A3246;
+                --muted: #5A6377;
+                --rule: #DCE0E8;
+                --tint: #ECEFF4;
+                --accent: #2450E6;
+                --warn: #B4610A;
+                --warn-tint: #FBF1E2;
+
                 --incoming: rgb(255, 235, 0);    /* RequestedSectorOverlay colours */
                 --outgoing: rgb(144, 238, 144);
                 --releasing: rgb(255, 120, 110);
-                --scope: rgb(127, 127, 127);
-                --on-scope: #0b0f14;
-                --on-scope-muted: #1f2933;
-                --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-                --topbar: 72px;
+
+                --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+                --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+                --topbar: 64px;
+                --measure: 1180px;
             }
+            @media (prefers-color-scheme: dark) {
+                :root { --bg: #0A0E18; --fg: #EEF2FB; --text: #C9D1E3; --muted: #96A1BA; --rule: #1E273A; --tint: #131B2C; --accent: #86A6FF; --warn: #E6BE7C; --warn-tint: #1E1A12; color-scheme: dark; }
+            }
+
             * { box-sizing: border-box; }
-            html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar) + 12px); }
-            body { margin: 0; min-height: 100vh; background: var(--scope); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+            html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar) + 20px); }
+            body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 400 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
             a { color: inherit; }
+            :focus-visible { outline: 2px solid var(--plugin); outline-offset: 3px; border-radius: 4px; }
+            .wrap { max-width: var(--measure); margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
 
-            .oz-panel {
-                background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            }
-            .oz-topbar {
-                position: sticky; top: 12px; z-index: 10; margin: 12px auto 0; max-width: 1180px;
-                height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 14px;
-            }
-            .oz-brand { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; text-decoration: none; }
-            .oz-brand span { color: var(--accent); }
-            .oz-topbar .oz-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; flex: 1; }
-            .oz-btn {
-                display: inline-flex; align-items: center; gap: 6px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 6px; padding: 5px 10px; white-space: nowrap; font-size: 12px; text-decoration: none; cursor: pointer; color: var(--text);
-            }
-            .oz-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
-            .oz-btn.on { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.6); color: var(--accent); }
+            /* ---------- the night band: site header and the guide's title ---------- */
+            .oz-topbar { position: sticky; top: 0; z-index: 10; background: var(--night); color: var(--ice); border-bottom: 1px solid rgba(150, 172, 225, .16); }
+            .oz-topbar .wrap { display: flex; align-items: center; gap: 28px; height: var(--topbar); }
+            .oz-brand { display: inline-flex; align-items: center; gap: 10px; font: 600 18px/1 var(--sans); letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
+            .oz-brand svg { width: 24px; height: 24px; }
+            .oz-links { display: flex; gap: 28px; margin-left: auto; font-size: 15px; }
+            .oz-links a { color: var(--ice-dim); text-decoration: none; transition: color .15s; }
+            .oz-links a:hover, .oz-links a[aria-current] { color: var(--ice); }
+            .oz-btn { display: inline-flex; align-items: center; height: 38px; padding: 0 16px; border-radius: 10px; background: var(--ice); color: #070B14; font: 500 14.5px/1 var(--sans); text-decoration: none; white-space: nowrap; }
 
-            .oz-badge {
-                display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
-                padding: 2px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: var(--muted); vertical-align: middle;
-            }
-            .oz-badge.accent { background: rgba(34, 211, 238, 0.15); color: var(--accent); }
-            .oz-badge.warn { background: rgba(251, 146, 60, 0.18); color: var(--warn); }
+            .oz-intro { background: var(--night); color: var(--ice); }
+            .oz-intro .wrap { padding-block: clamp(44px, 6vw, 76px); }
+            .oz-intro h1 { margin: 0; font-size: clamp(34px, 4.4vw, 56px); line-height: 1.02; letter-spacing: -.035em; font-weight: 600; text-wrap: balance; }
+            .oz-intro p { margin: 18px 0 0; color: #C3CBDD; font-size: 18px; line-height: 1.5; max-width: 38em; }
 
-            /* ---------- layout: side navigation + content ---------- */
-            .oz-layout {
-                max-width: 1180px; margin: 20px auto 0; padding: 0 20px;
-                display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start;
-            }
-            .oz-side { position: sticky; top: var(--topbar); max-height: calc(100vh - var(--topbar) - 16px); overflow-y: auto; padding: 14px 10px; }
+            /* ---------- layout: section list + document ---------- */
+            .oz-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: clamp(32px, 5vw, 72px); align-items: start; padding-block: 40px 0; }
+            .oz-side { position: sticky; top: calc(var(--topbar) + 24px); max-height: calc(100vh - var(--topbar) - 48px); overflow-y: auto; scrollbar-width: thin; font-size: 14.5px; }
             .oz-side summary { display: none; }
-            .oz-side h4 { margin: 14px 8px 4px; font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; }
-            .oz-side h4:first-of-type { margin-top: 2px; }
+            .oz-side h4 { margin: 22px 0 6px; font-size: 13px; font-weight: 500; color: var(--fg); }
+            .oz-side h4:first-of-type { margin-top: 0; }
             .oz-side ul { list-style: none; margin: 0; padding: 0; }
-            .oz-side a {
-                display: block; padding: 5px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 13px;
-                border-left: 2px solid transparent;
-            }
-            .oz-side a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
-            .oz-side a.active { color: var(--accent); background: rgba(34, 211, 238, 0.08); border-left-color: var(--accent); }
+            .oz-side a { display: block; padding: 4px 0; color: var(--muted); text-decoration: none; transition: color .15s; }
+            .oz-side a:hover { color: var(--fg); }
+            .oz-side a.active { color: var(--accent); font-weight: 500; }
 
-            .oz-content { min-width: 0; display: grid; gap: 16px; }
-            .oz-intro { padding: 24px 28px; }
-            .oz-intro h1 { margin: 10px 0 0; font-size: clamp(24px, 3.6vw, 34px); line-height: 1.15; }
-            .oz-intro h1 span { color: var(--accent); }
-            .oz-intro p { margin: 12px 0 0; color: var(--muted); font-size: 15px; max-width: 720px; }
-
-            .oz-doc { padding: 22px 28px 24px; }
-            .oz-doc > .oz-kicker { margin: 0; font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
-            .oz-doc h2 { margin: 4px 0 0; font-size: 21px; }
-            .oz-doc h3 { margin: 22px 0 0; font-size: 15px; }
-            .oz-doc p, .oz-doc li { color: #cbd5e1; }
-            .oz-doc p { margin: 10px 0 0; max-width: 760px; }
-            .oz-doc ul, .oz-doc ol { margin: 10px 0 0; padding-left: 20px; max-width: 760px; }
-            .oz-doc li { margin-top: 5px; }
-            .oz-doc b, .oz-doc strong { color: var(--text); font-weight: 600; }
-            .oz-doc code { font-family: var(--mono); font-size: 12px; background: rgba(255, 255, 255, 0.07); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+            .oz-content { min-width: 0; max-width: 780px; }
+            .oz-doc { padding-block: 44px; border-top: 1px solid var(--rule); }
+            .oz-doc:first-child { border-top: 0; padding-top: 0; }
+            /* The section list already says which group a section is in. */
+            .oz-doc > .oz-kicker { display: none; }
+            .oz-doc h2 { margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: -.025em; font-weight: 600; color: var(--fg); text-wrap: balance; }
+            .oz-doc h3 { margin: 30px 0 0; font-size: 18.5px; letter-spacing: -.012em; font-weight: 600; color: var(--fg); }
+            .oz-doc p { margin: 12px 0 0; }
+            .oz-doc ul, .oz-doc ol { margin: 12px 0 0; padding-left: 22px; }
+            .oz-doc li { margin-top: 6px; }
+            .oz-doc b, .oz-doc strong { color: var(--fg); font-weight: 600; }
+            .oz-doc a { color: var(--accent); text-underline-offset: 3px; }
+            .oz-doc code { font: 500 .86em/1 var(--mono); background: var(--tint); padding: 2px 6px; border-radius: 5px; color: var(--fg); overflow-wrap: anywhere; }
 
             /* A vatSys control or menu entry, written the way it reads on screen. */
-            .ui { font-family: var(--mono); font-size: 12px; color: var(--text); background: #1e293b; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+            .ui { font: 500 .84em/1.5 var(--mono); color: var(--fg); background: var(--tint); box-shadow: inset 0 0 0 1px var(--rule); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+            .oz-doc a.ui { color: var(--accent); }
 
-            .oz-table { width: 100%; max-width: 820px; margin-top: 12px; border-collapse: collapse; font-size: 13px; }
-            .oz-table th, .oz-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
-            .oz-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-top: 0; }
-            .oz-table td:first-child { color: var(--text); width: 38%; }
-            .oz-table td { color: #cbd5e1; }
+            .oz-table { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 15px; }
+            .oz-table th, .oz-table td { text-align: left; vertical-align: top; padding: 11px 16px 11px 0; border-top: 1px solid var(--rule); }
+            .oz-table th { color: var(--muted); font-weight: 500; font-size: 13.5px; border-top: 0; padding-top: 0; }
+            .oz-table td:first-child { color: var(--fg); width: 40%; }
 
-            .oz-note { margin-top: 14px; max-width: 760px; padding: 10px 14px; border-radius: 8px; border-left: 3px solid var(--accent); background: rgba(34, 211, 238, 0.07); color: #cbd5e1; }
-            .oz-note.warn { border-left-color: var(--warn); background: rgba(251, 146, 60, 0.08); }
-            .oz-note b { color: var(--text); }
+            .oz-note { margin-top: 18px; padding: 14px 18px; border-radius: 10px; background: var(--tint); color: var(--text); }
+            .oz-note.warn { background: var(--warn-tint); }
+            .oz-note.warn b:first-child { color: var(--warn); }
 
-            .oz-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; border: 1px solid rgba(0, 0, 0, 0.4); }
+            .oz-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .35); }
 
-            /* ---------- screenshots ---------- */
-            .oz-shot { margin: 16px 0 0; max-width: 820px; }
-            .oz-shot button { all: unset; cursor: zoom-in; display: block; }
-            .oz-shot img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.12); }
-            .oz-shot figcaption { margin-top: 6px; font-size: 12px; color: var(--muted); }
-            .oz-shot.pending .oz-shot-slot {
-                display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 140px; padding: 16px 18px;
-                border: 1px dashed rgba(255, 255, 255, 0.25); border-radius: 8px; color: var(--muted); font-size: 12px;
-            }
+            /* ---------- screenshots: the plugin's own windows, on the scope at night ---------- */
+            .oz-shot { margin: 22px 0 0; }
+            .oz-shot button { all: unset; cursor: zoom-in; display: grid; place-items: center; box-sizing: border-box; width: 100%; padding: clamp(16px, 4vw, 36px); border-radius: 14px; background: var(--night); box-shadow: inset 0 0 0 1px rgba(150, 172, 225, .14); }
+            .oz-shot button:focus-visible { outline: 2px solid var(--plugin); outline-offset: 3px; }
+            .oz-shot img { display: block; max-width: 100%; height: auto; box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
+            .oz-shot figcaption { margin-top: 10px; font-size: 14px; color: var(--muted); }
+            .oz-shot.pending .oz-shot-slot { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 140px; padding: 16px 18px; border: 1px dashed var(--rule); border-radius: 14px; color: var(--muted); font-size: 14px; }
             .oz-shot.pending .oz-shot-slot code { align-self: flex-start; }
             .oz-zoom { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 94vh; }
-            .oz-zoom::backdrop { background: rgba(0, 0, 0, 0.8); }
-            .oz-zoom img { display: block; max-width: 96vw; max-height: 94vh; border-radius: 8px; cursor: zoom-out; }
+            .oz-zoom::backdrop { background: rgba(6, 10, 19, .88); }
+            .oz-zoom img { display: block; max-width: 96vw; max-height: 94vh; cursor: zoom-out; }
 
-            footer { max-width: 1180px; margin: 48px auto 0; padding: 20px; color: var(--on-scope-muted); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
-            footer a { color: var(--on-scope); }
+            footer { margin-top: 56px; border-top: 1px solid var(--rule); padding-block: 34px; font-size: 14px; color: var(--muted); }
+            footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; }
+            .foot-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--fg); }
+            .foot-brand svg { width: 18px; height: 18px; flex: none; }
+            footer a { text-decoration: none; }
+            footer a:hover { color: var(--fg); }
 
-            /* Narrow windows, including vatSys's own browser at its default size: the navigation
-               folds into a "Jump to a section" list above the content. */
+            /* Narrow windows, including vatSys's own browser at its default size: the section list
+               folds into a "Jump to a section" list above the document. */
             @media (max-width: 900px) {
-                .oz-layout { grid-template-columns: minmax(0, 1fr); }
-                .oz-side { position: static; max-height: none; }
-                .oz-side summary { display: block; cursor: pointer; padding: 2px 8px; font-weight: 600; color: var(--text); }
-                .oz-side ul { columns: 2 180px; }
-                .oz-intro, .oz-doc { padding-left: 18px; padding-right: 18px; }
-                .oz-topbar { margin: 12px 12px 0; }
-                .oz-topbar .oz-title { display: none; }
+                .oz-links { display: none; }
                 .oz-topbar .oz-btn { margin-left: auto; }
-                .oz-side summary::before { content: '\25B8  '; color: var(--accent); }
-                .oz-side details[open] summary::before { content: '\25BE  '; }
+                .oz-layout { grid-template-columns: minmax(0, 1fr); gap: 28px; padding-block: 24px 0; }
+                .oz-side { position: static; max-height: none; padding: 14px 18px; border-radius: 12px; background: var(--tint); }
+                .oz-side summary { display: block; cursor: pointer; font-weight: 500; color: var(--fg); }
+                .oz-side details[open] summary { margin-bottom: 14px; }
+                .oz-side ul { columns: 2 180px; }
+                .oz-doc h2 { font-size: 26px; }
             }
             @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
         </style>
@@ -174,14 +167,26 @@
             };
         @endphp
 
-        <header class="oz-panel oz-topbar">
-            <a href="/" class="oz-brand">Oz<span>Server</span></a>
-            <span class="oz-title">How-to guide</span>
-            <a href="/live-map" target="_blank" rel="noopener" class="oz-btn on">Live map &rarr;</a>
+        <header class="oz-topbar">
+            <div class="wrap">
+                <a href="/" class="oz-brand">@include('partials.mark')OzServer</a>
+                <nav class="oz-links" aria-label="Main">
+                    <a href="/live-map">Live map</a>
+                    <a href="/how-to" aria-current="page">How-To</a>
+                </nav>
+                <a href="/#install" class="oz-btn">Install</a>
+            </div>
         </header>
 
-        <div class="oz-layout">
-            <nav class="oz-panel oz-side" aria-label="Guide sections">
+        <section class="oz-intro">
+            <div class="wrap">
+                <h1>How to use OzServer</h1>
+                <p>Everything you need to control with the OzServer plugin for vatSys: how to take airspace, hand it over, deal with requests, and what happens when someone disconnects.</p>
+            </div>
+        </section>
+
+        <div class="oz-layout wrap">
+            <nav class="oz-side" aria-label="Guide sections">
                 <details id="oz-side-details" open>
                     <summary>Jump to a section</summary>
                     <h4>Getting started</h4>
@@ -222,14 +227,8 @@
             </nav>
 
             <main class="oz-content">
-                <section class="oz-panel oz-intro">
-                    <span class="oz-badge accent">Controller guide</span>
-                    <h1>How to use <span>OzServer</span></h1>
-                    <p>Everything you need to control with the OzServer plugin for vatSys: how to take airspace, hand it over, deal with requests, and what happens when someone disconnects. Use the menu to jump straight to what you need.</p>
-                </section>
-
                 <!-- ================= Getting started ================= -->
-                <section id="what-is-ozserver" class="oz-panel oz-doc">
+                <section id="what-is-ozserver" class="oz-doc">
                     <p class="oz-kicker">Getting started</p>
                     <h2>What OzServer does</h2>
                     <p>OzServer gives every controller the same picture of <b>who owns which sector</b>. Exactly one controller owns a sector at a time, and everyone's vatSys agrees on who that is.</p>
@@ -241,7 +240,7 @@
                     <p>Keeping everyone in step is handled by the server. You don't need to do anything to stay in sync.</p>
                 </section>
 
-                <section id="installing" class="oz-panel oz-doc">
+                <section id="installing" class="oz-doc">
                     <p class="oz-kicker">Getting started</p>
                     <h2>Installing</h2>
                     <p>You need vatSys with an Australian or Pacific profile. Install OzServer once, in one place only.</p>
@@ -253,14 +252,14 @@
                     </ol>
                     <h3>By hand</h3>
                     <ol>
-                        <li>Download <code>OzServerPlugin-v&lt;version&gt;.zip</code> from the <a href="https://github.com/JoshuaMicallefYBSU/OzServer-Plugin/releases/latest" class="ui" style="text-decoration:none">latest release</a>.</li>
+                        <li>Download <code>OzServerPlugin-v&lt;version&gt;.zip</code> from the <a href="https://github.com/JoshuaMicallefYBSU/OzServer-Plugin/releases/latest" class="ui">latest release</a>.</li>
                         <li>Unzip it into <code>Documents\vatSys Files\Profiles\&lt;your profile&gt;\Plugins\OzServer-Plugin\</code>.</li>
                         <li>Restart vatSys.</li>
                     </ol>
                     <div class="oz-note">If Windows has blocked the download, right-click the zip, choose <b>Properties</b> and tick <b>Unblock</b> before unzipping it.</div>
                 </section>
 
-                <section id="menus" class="oz-panel oz-doc">
+                <section id="menus" class="oz-doc">
                     <p class="oz-kicker">Getting started</p>
                     <h2>Where to find it</h2>
                     <p>Once OzServer is loaded, vatSys's menus gain three entries:</p>
@@ -275,7 +274,7 @@
                     {!! $shot('menu-bar.png', 'The vatSys menu bar with the OzServer How-To button, and Settings opened to show the Sectors entry.') !!}
                 </section>
 
-                <section id="logging-on" class="oz-panel oz-doc">
+                <section id="logging-on" class="oz-doc">
                     <p class="oz-kicker">Getting started</p>
                     <h2>Logging on</h2>
                     <p>Connect as you normally would. When you log on as a position, its sectors become yours.</p>
@@ -287,7 +286,7 @@
                 </section>
 
                 <!-- ================= Sectors ================= -->
-                <section id="transmitting" class="oz-panel oz-doc">
+                <section id="transmitting" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>Claiming by transmitting</h2>
                     <p>The quickest way to extend is the VSCS panel. Press <b>Transmit</b> on a sector's line:</p>
@@ -305,7 +304,7 @@
                     <p>OzServer also tidies your VSCS panel. Lines for sub-sectors you now work through their primary's frequency are removed, unless you're transmitting on them or someone else holds them.</p>
                 </section>
 
-                <section id="sectors-window" class="oz-panel oz-doc">
+                <section id="sectors-window" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>The Sectors window</h2>
                     <p>Open it from <span class="ui">Settings</span> &rarr; <span class="ui">Sectors</span>. It shows what you own, what you're about to change, and the rest of the airspace.</p>
@@ -337,7 +336,7 @@
                     </table>
                 </section>
 
-                <section id="requesting" class="oz-panel oz-doc">
+                <section id="requesting" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>Asking for a sector</h2>
                     <p>When you transmit on, or add, airspace that someone else holds, a <b>Request sector</b> prompt shows what's owned and by whom.</p>
@@ -350,7 +349,7 @@
                     <div class="oz-note">OzServer never sends a request without you agreeing to it first.</div>
                 </section>
 
-                <section id="answering" class="oz-panel oz-doc">
+                <section id="answering" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>Answering a request</h2>
                     <p>When another controller asks for your airspace:</p>
@@ -368,7 +367,7 @@
                     <p>Accepting hands over the sector <b>and the aircraft you're working inside it</b>. Coordinate anything that needs saying first, just as you would for a normal handoff.</p>
                 </section>
 
-                <section id="releasing" class="oz-panel oz-doc">
+                <section id="releasing" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>Releasing sectors</h2>
                     <p>To give up airspace you no longer want, either:</p>
@@ -380,7 +379,7 @@
                     <div class="oz-note warn">Releasing airspace doesn't hand its aircraft to anyone. Hand them off before you release it, as usual.</div>
                 </section>
 
-                <section id="extension-limits" class="oz-panel oz-doc">
+                <section id="extension-limits" class="oz-doc">
                     <p class="oz-kicker">Sectors</p>
                     <h2>Extension limits</h2>
                     <p>OzServer applies VATPAC's ATS Policy on enroute extensions:</p>
@@ -395,7 +394,7 @@
                 </section>
 
                 <!-- ================= Traffic ================= -->
-                <section id="tags" class="oz-panel oz-doc">
+                <section id="tags" class="oz-doc">
                     <p class="oz-kicker">Traffic</p>
                     <h2>Aircraft and tags</h2>
                     <ul>
@@ -407,7 +406,7 @@
                     </ul>
                 </section>
 
-                <section id="arrival-list" class="oz-panel oz-doc">
+                <section id="arrival-list" class="oz-doc">
                     <p class="oz-kicker">Traffic</p>
                     <h2>Arrival List</h2>
                     <p>The Arrival List (for example <code>A:YSSY List</code>) is shared. Every controller sees the same flights in the same order: every departed flight inbound, with its landing time, type and global ops.</p>
@@ -419,14 +418,14 @@
                     </ul>
                 </section>
 
-                <section id="atis" class="oz-panel oz-doc">
+                <section id="atis" class="oz-doc">
                     <p class="oz-kicker">Traffic</p>
                     <h2>ATIS</h2>
                     <p>There's nothing to do. Your ATIS, whether vatSys's own or one broadcast through ATIS Plugin, is published as it changes and shown on the <a href="/live-map" target="_blank" rel="noopener">live map</a>. This happens on the live network only, never on SweatBox.</p>
                 </section>
 
                 <!-- ================= Other controllers ================= -->
-                <section id="no-plugin" class="oz-panel oz-doc">
+                <section id="no-plugin" class="oz-doc">
                     <p class="oz-kicker">Other controllers</p>
                     <h2>Controllers without OzServer</h2>
                     <p>A controller connected without the plugin still holds their airspace. That includes their position, what their controller info says they cover (for example "Extending MUN, GUN"), and the sectors their frequencies stand for.</p>
@@ -439,7 +438,7 @@
                     <div class="oz-note warn">Only take their airspace once they've handed it over or logged off. OzServer doesn't check this, so it's up to you.</div>
                 </section>
 
-                <section id="disconnects" class="oz-panel oz-doc">
+                <section id="disconnects" class="oz-doc">
                     <p class="oz-kicker">Other controllers</p>
                     <h2>Disconnects and reconnects</h2>
                     <table class="oz-table">
@@ -457,7 +456,7 @@
                     <div class="oz-note">An untracked tag is still shown on everyone's scope, but it's never pulled into anyone's jurisdiction by itself. Whoever now holds the airspace picks it up.</div>
                 </section>
 
-                <section id="roles" class="oz-panel oz-doc">
+                <section id="roles" class="oz-doc">
                     <p class="oz-kicker">Other controllers</p>
                     <h2>Observers, FMP and SweatBox</h2>
                     <ul>
@@ -469,7 +468,7 @@
                 </section>
 
                 <!-- ================= Help ================= -->
-                <section id="updates" class="oz-panel oz-doc">
+                <section id="updates" class="oz-doc">
                     <p class="oz-kicker">Help</p>
                     <h2>Updates</h2>
                     <p>OzServer keeps itself up to date. It checks when vatSys opens and every few minutes after that, and never interrupts a session.</p>
@@ -477,7 +476,7 @@
                     {!! $shot('update-window.png', 'The OzServer update window with its Restart button.') !!}
                 </section>
 
-                <section id="disabling" class="oz-panel oz-doc">
+                <section id="disabling" class="oz-doc">
                     <p class="oz-kicker">Help</p>
                     <h2>Turning OzServer off</h2>
                     <p>If something is going wrong mid-session, <span class="ui">Tools</span> &rarr; <span class="ui">Disable OzServer</span> puts you back on plain vatSys straight away:</p>
@@ -489,7 +488,7 @@
                     <p>It lasts until you restart vatSys.</p>
                 </section>
 
-                <section id="troubleshooting" class="oz-panel oz-doc">
+                <section id="troubleshooting" class="oz-doc">
                     <p class="oz-kicker">Help</p>
                     <h2>Troubleshooting</h2>
                     <table class="oz-table">
@@ -509,8 +508,15 @@
         </div>
 
         <footer>
-            <span>OzServer &mdash; &copy; Joshua Micallef | 2026{{ date('Y') > 2026 ? '-'.date('Y') : '' }}</span>
-            <span><a href="/">Home</a> &middot; <a href="/live-map" target="_blank" rel="noopener">Live map</a></span>
+            <div class="wrap">
+                <span class="foot-brand">
+                    @include('partials.mark', ['ring' => 'currentColor', 'held' => 'var(--accent)'])
+                    OzServer &mdash; &copy; Joshua Micallef | 2026{{ date('Y') > 2026 ? '-'.date('Y') : '' }}
+                </span>
+                <a href="/">Home</a>
+                <a href="/live-map">Live map</a>
+                <a href="https://github.com/JoshuaMicallefYBSU/OzServer-Plugin">GitHub</a>
+            </div>
         </footer>
 
         <dialog class="oz-zoom" id="oz-zoom"><img alt=""></dialog>

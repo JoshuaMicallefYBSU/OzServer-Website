@@ -6,61 +6,63 @@
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <title>OzServer | Console</title>
         @include('partials.icons')
+        @include('partials.fonts')
         <style>
             /* Same palette and panels as /live-map, so the two read as one tool. */
             :root {
-                --bg: rgba(2, 6, 23, 0.9);
-                --panel: rgba(15, 23, 42, 0.92);
-                --line: rgba(255, 255, 255, 0.09);
-                --text: #e2e8f0;
-                --muted: #94a3b8;
-                --faint: #64748b;
-                --accent: #22d3ee;
+                --bg: rgba(8, 13, 24, 0.92);
+                --panel: rgba(14, 22, 38, 0.92);
+                --line: rgba(150, 172, 225, 0.16);
+                --text: #EEF2FB;
+                --muted: #9AA6C2;
+                --faint: #66728F;
+                --accent: #7FA2FF;
                 --warn: #fb923c;
                 --bad: #f87171;
                 --good: #4ade80;
                 --tag: #facc15;
                 --flow: #c4b5fd;
-                --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+                --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+                --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
             }
             * { box-sizing: border-box; }
-            html, body { margin: 0; height: 100%; background: #020617; color: var(--text); font-family: var(--sans); font-size: 13px; }
+            html, body { margin: 0; height: 100%; background: #060A13; color: var(--text); font-family: var(--sans); font-size: 13.5px; -webkit-font-smoothing: antialiased; }
             button, input, select, textarea { font: inherit; color: inherit; }
             [hidden] { display: none !important; }
 
-            .oz-panel { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+            .oz-panel { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4); }
 
             /* ---------- gate ---------- */
-            .oz-gate { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #020617; z-index: 10; }
+            .oz-gate { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #060A13; z-index: 10; }
             .oz-gate-box { padding: 32px; width: 300px; text-align: center; }
-            .oz-gate-box h1 { font-size: 15px; margin: 0 0 16px; letter-spacing: 0.04em; }
-            .oz-gate-box h1 span, .oz-brand span { color: var(--accent); }
+            .oz-gate-box h1 { display: flex; align-items: center; justify-content: center; gap: 9px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; }
+            .oz-gate-box h1 svg, .oz-brand svg { width: 22px; height: 22px; }
+            .oz-gate-box h1 span, .oz-brand span { color: var(--muted); font-weight: 400; }
             .oz-gate-box input { width: 100%; margin-bottom: 12px; }
             .oz-gate-box button { width: 100%; }
             .oz-gate-error { color: var(--bad); font-size: 12px; margin: 10px 0 0; }
 
             /* ---------- shared controls ---------- */
             .oz-input, .oz-gate-box input, select.oz-input, textarea.oz-input {
-                background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 6px; padding: 5px 8px; color: var(--text);
+                background: #0E1626; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 6px; padding: 5px 8px; color: var(--text);
             }
             .oz-btn, .oz-gate-box button {
-                background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 5px 10px;
-                cursor: pointer; white-space: nowrap; font-size: 12px;
+                background: #0E1626; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 6px 11px;
+                cursor: pointer; white-space: nowrap; font-size: 12.5px;
             }
             .oz-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
-            .oz-btn.primary, .oz-gate-box button { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 700; }
+            .oz-btn.primary, .oz-gate-box button { background: #EEF2FB; color: #070B14; border-color: #EEF2FB; font-weight: 500; }
             .oz-btn.primary:disabled { opacity: 0.5; cursor: default; }
-            .oz-btn.on { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.6); color: var(--accent); }
+            .oz-btn.on { background: rgba(91, 140, 255, 0.15); border-color: rgba(91, 140, 255, 0.6); color: var(--accent); }
             .oz-btn.danger { color: var(--bad); border-color: rgba(248, 113, 113, 0.4); }
             .oz-badge {
-                display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+                display: inline-block; font-size: 10.5px; font-weight: 700;
                 padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: var(--muted); vertical-align: 1px;
             }
             .oz-badge.good { background: rgba(74, 222, 128, 0.15); color: var(--good); }
             .oz-badge.warn { background: rgba(251, 146, 60, 0.18); color: var(--warn); }
             .oz-badge.bad { background: rgba(248, 113, 113, 0.18); color: var(--bad); }
-            .oz-badge.accent { background: rgba(34, 211, 238, 0.15); color: var(--accent); }
+            .oz-badge.accent { background: rgba(91, 140, 255, 0.15); color: var(--accent); }
             .oz-badge.srv-live { background: rgba(74, 222, 128, 0.15); color: var(--good); }
             .oz-badge.srv-sb1 { background: rgba(250, 204, 21, 0.15); color: var(--tag); }
             .oz-badge.srv-sb2 { background: rgba(167, 139, 250, 0.15); color: var(--flow); }
@@ -68,17 +70,17 @@
                 display: inline-flex; align-items: center; gap: 4px; margin: 2px 3px 2px 0; padding: 1px 7px; border-radius: 999px;
                 border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.04); font-family: var(--mono); font-size: 11px;
             }
-            .oz-section-title { margin: 12px 2px 6px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+            .oz-section-title { margin: 12px 2px 6px; font-size: 11.5px; color: var(--muted); }
             .oz-empty { color: var(--faint); padding: 14px 6px; }
 
             /* ---------- layout ---------- */
             #app { position: fixed; inset: 0; display: grid; grid-template-rows: 48px 1fr; gap: 10px; padding: 10px; }
             .oz-topbar { display: flex; align-items: center; gap: 16px; padding: 0 14px; min-width: 0; }
-            .oz-brand { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+            .oz-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; color: var(--text); text-decoration: none; }
             .oz-stats { display: flex; gap: 16px; flex: 1; overflow: hidden; }
             .oz-stat { display: flex; flex-direction: column; line-height: 1.1; white-space: nowrap; }
-            .oz-stat b { font-size: 15px; font-family: var(--mono); }
-            .oz-stat small { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-stat b { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+            .oz-stat small { font-size: 11.5px; color: var(--muted); }
             .oz-stat.bad b { color: var(--bad); }
             .oz-stat.warn b { color: var(--warn); }
             .oz-live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -99,7 +101,7 @@
                 border: 1px solid transparent; border-radius: 8px; padding: 7px 8px; cursor: pointer;
             }
             .oz-ctl:hover { background: rgba(255, 255, 255, 0.04); }
-            .oz-ctl.selected { background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.35); }
+            .oz-ctl.selected { background: rgba(91, 140, 255, 0.08); border-color: rgba(91, 140, 255, 0.35); }
             .oz-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--good); }
             .oz-dot.stale { background: var(--warn); }
             .oz-dot.off { background: var(--faint); }
@@ -108,16 +110,16 @@
             .oz-ctl .sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .oz-ctl .right { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
             .oz-ctl .right .errs { color: var(--bad); }
-            .oz-left-foot { border-top: 1px solid var(--line); padding: 8px 10px; color: var(--faint); font-size: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+            .oz-left-foot { border-top: 1px solid var(--line); padding: 8px 10px; color: var(--faint); font-size: 11.5px; display: flex; gap: 10px; flex-wrap: wrap; }
             .oz-left-foot span { display: inline-flex; align-items: center; gap: 4px; }
 
             /* ---------- map ---------- */
             .oz-mapwrap { display: flex; flex-direction: column; overflow: hidden; }
             .oz-panel-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
-            .oz-panel-head h2 { margin: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+            .oz-panel-head h2 { margin: 0; font-size: 12.5px; color: var(--muted); font-weight: 500; }
             .oz-panel-head .spacer { flex: 1; }
             .oz-panel-head a { color: var(--accent); font-size: 11px; text-decoration: none; }
-            .oz-mapwrap iframe { flex: 1; width: 100%; border: 0; background: #020617; }
+            .oz-mapwrap iframe { flex: 1; width: 100%; border: 0; background: #060A13; }
             .map-collapsed .oz-mapwrap iframe { display: none; }
 
             /* ---------- activity ---------- */
@@ -133,7 +135,7 @@
             .oz-toggle .n { font-family: var(--mono); color: var(--muted); }
             .oz-feedbar .spacer { flex: 1; }
             .oz-feedbar .oz-input { padding: 3px 7px; font-size: 12px; }
-            .oz-focus { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 9px; border-radius: 999px; background: rgba(34, 211, 238, 0.15); color: var(--accent); font-family: var(--mono); font-size: 11px; }
+            .oz-focus { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 9px; border-radius: 999px; background: rgba(91, 140, 255, 0.15); color: var(--accent); font-family: var(--mono); font-size: 11px; }
             .oz-focus button { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0 4px; }
 
             #feed { flex: 1; overflow-y: auto; font-size: 12px; }
@@ -141,13 +143,13 @@
             .oz-ev:hover { background: rgba(255, 255, 255, 0.025); }
             .oz-ev time { font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 1px; }
             .oz-ev .icon { text-align: center; color: var(--c); }
-            .oz-ev .who { font-family: var(--mono); font-weight: 600; color: #67e8f9; margin-right: 6px; }
+            .oz-ev .who { font-family: var(--mono); font-weight: 600; color: #A9C1FF; margin-right: 6px; }
             .oz-ev .who.api { color: var(--muted); }
             .oz-ev .msg { color: var(--text); word-break: break-word; }
             .oz-ev.g-errors { background: rgba(248, 113, 113, 0.05); }
             .oz-ev.g-errors .msg { color: #fecaca; }
             .oz-ev .facts { margin-top: 2px; }
-            .oz-ev pre { grid-column: 3; margin: 6px 0 2px; padding: 8px; border-radius: 6px; background: #0b1222; color: var(--muted); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+            .oz-ev pre { grid-column: 3; margin: 6px 0 2px; padding: 8px; border-radius: 6px; background: #0A1120; color: var(--muted); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; }
             .oz-raw { padding: 2px 10px; font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid rgba(255, 255, 255, 0.03); color: var(--muted); }
             .oz-raw b { color: var(--text); font-weight: normal; }
             .oz-raw .e { color: var(--bad); }
@@ -155,13 +157,13 @@
             /* ---------- right: details / messages ---------- */
             .oz-tabs { display: flex; border-bottom: 1px solid var(--line); }
             .oz-tabs button {
-                flex: 1; background: none; border: 0; padding: 10px 4px; cursor: pointer; color: var(--muted);
-                font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid transparent;
+                flex: 1; background: none; border: 0; padding: 11px 4px; cursor: pointer; color: var(--muted);
+                font-size: 12.5px; font-weight: 500; border-bottom: 2px solid transparent;
             }
-            .oz-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+            .oz-tabs button.active { color: var(--text); border-bottom-color: var(--text); }
             .oz-tab-body { flex: 1; overflow-y: auto; padding: 10px 12px 14px; }
-            .oz-detail h3 { margin: 0; font-size: 17px; font-family: var(--mono); }
-            .oz-kind { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+            .oz-detail h3 { margin: 0; font-size: 18px; font-weight: 500; font-family: var(--mono); }
+            .oz-kind { font-size: 11.5px; color: var(--muted); }
             .oz-kv { display: grid; grid-template-columns: 100px 1fr; gap: 4px 10px; margin-top: 10px; }
             .oz-kv dt { color: var(--muted); }
             .oz-kv dd { margin: 0; font-family: var(--mono); word-break: break-word; }
@@ -171,12 +173,12 @@
             .oz-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 6px; }
             .oz-summary div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
             .oz-summary b { display: block; font-size: 18px; font-family: var(--mono); }
-            .oz-summary small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-summary small { color: var(--muted); font-size: 11.5px; }
             .oz-toprow { display: flex; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 12px; }
             .oz-toprow b { font-family: var(--mono); color: var(--bad); min-width: 26px; }
 
             .oz-compose { display: flex; flex-direction: column; gap: 9px; }
-            .oz-compose label.l { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
+            .oz-compose label.l { color: var(--muted); font-size: 11.5px; display: block; margin-bottom: 3px; }
             .oz-compose .oz-input { width: 100%; }
             .oz-compose textarea { min-height: 110px; resize: vertical; }
             .oz-compose .row { display: flex; gap: 8px; }
@@ -190,7 +192,7 @@
             .oz-picker > button { width: 100%; text-align: left; display: flex; justify-content: space-between; }
             .oz-picker-list {
                 position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; max-height: 240px; overflow-y: auto;
-                background: #0b1222; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+                background: #0A1120; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             }
             .oz-picker-list label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
             .oz-picker-list label:hover { background: rgba(255, 255, 255, 0.05); }
@@ -206,7 +208,7 @@
             .oz-msg .stats { margin-top: 6px; color: var(--muted); font-size: 11px; cursor: pointer; }
             .oz-msg .receipts { margin-top: 4px; color: var(--faint); font-size: 11px; font-family: var(--mono); }
             .oz-msg .reply { margin-top: 6px; border-left: 2px solid var(--accent); padding: 3px 0 3px 9px; }
-            .oz-msg .reply .who { color: #67e8f9; font-size: 11px; }
+            .oz-msg .reply .who { color: #A9C1FF; font-size: 11px; }
             .oz-msg .reply .text { white-space: pre-wrap; word-break: break-word; }
 
             @media (max-width: 1200px) {
@@ -218,7 +220,7 @@
     <body>
         <div id="gate" class="oz-gate" @if ($unlocked) hidden @endif>
             <div class="oz-panel oz-gate-box">
-                <h1>Oz<span>Server</span> Console</h1>
+                <h1>@include('partials.mark')OzServer <span>Console</span></h1>
                 <input type="password" id="gate-password" placeholder="Password" autocomplete="off">
                 <button id="gate-submit">Enter</button>
                 <p id="gate-error" class="oz-gate-error" hidden>Incorrect password.</p>
@@ -227,7 +229,7 @@
 
         <div id="app" @if (! $unlocked) hidden @endif>
             <header class="oz-panel oz-topbar">
-                <div class="oz-brand">Oz<span>Server</span> Console</div>
+                <a class="oz-brand" href="/" title="OzServer home">@include('partials.mark')OzServer <span>Console</span></a>
                 <select id="server" class="oz-input" aria-label="Server">
                     <option value="all">All servers</option>
                     <option value="live">Live VATSIM</option>
@@ -411,7 +413,7 @@
             // ---------------------------------------------------------------------------------
             const GROUPS = [
                 { id: 'errors', label: 'Errors', colour: '#f87171', icon: '⚠', on: true },
-                { id: 'sectors', label: 'Sector transfers', colour: '#22d3ee', icon: '▦', on: true },
+                { id: 'sectors', label: 'Sector transfers', colour: '#7FA2FF', icon: '▦', on: true },
                 { id: 'tags', label: 'Tags & handoffs', colour: '#facc15', icon: '✈', on: true },
                 { id: 'coupling', label: 'Coupling', colour: '#a3a3a3', icon: '⌁', on: false },
                 { id: 'connections', label: 'Connections', colour: '#4ade80', icon: '⏻', on: true },

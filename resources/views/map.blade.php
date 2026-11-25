@@ -9,50 +9,53 @@
         <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
         <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
+        @include('partials.fonts')
         <style>
+            /* The homepage's night palette and type, on a working tool. */
             :root {
-                --bg: rgba(2, 6, 23, 0.9);
-                --line: rgba(255, 255, 255, 0.09);
-                --text: #e2e8f0;
-                --muted: #94a3b8;
-                --faint: #64748b;
-                --accent: #22d3ee;
+                --bg: rgba(8, 13, 24, 0.92);
+                --line: rgba(150, 172, 225, 0.16);
+                --text: #EEF2FB;
+                --muted: #9AA6C2;
+                --faint: #66728F;
+                --accent: #7FA2FF;
                 --warn: #fb923c;
                 --bad: #f87171;
                 --good: #4ade80;
-                --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+                --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+                --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
             }
             * { box-sizing: border-box; }
-            html, body { margin: 0; height: 100%; background: #020617; color: var(--text); font-family: var(--sans); font-size: 13px; }
+            html, body { margin: 0; height: 100%; background: #060A13; color: var(--text); font-family: var(--sans); font-size: 13.5px; -webkit-font-smoothing: antialiased; }
             #map { position: absolute; inset: 0; }
             button { font: inherit; color: inherit; }
 
             .oz-panel {
                 position: absolute; z-index: 2; background: var(--bg);
-                border: 1px solid var(--line); border-radius: 12px;
-                backdrop-filter: blur(6px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+                border: 1px solid var(--line); border-radius: 14px;
+                backdrop-filter: blur(8px); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
             }
 
             /* ---------- top bar ---------- */
             .oz-topbar { top: 12px; left: 12px; right: 12px; height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 14px; }
-            .oz-brand { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
-            .oz-brand span { color: var(--accent); }
+            .oz-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; color: var(--text); text-decoration: none; }
+            .oz-brand svg { width: 22px; height: 22px; }
+            .oz-brand span { color: var(--muted); font-weight: 400; }
             .oz-topbar select {
-                background: #0f172a; color: var(--text); border: 1px solid rgba(255, 255, 255, 0.15);
+                background: #0E1626; color: var(--text); border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px; padding: 4px 8px; font: inherit;
             }
             .oz-stats { display: flex; gap: 14px; flex: 1; overflow: hidden; }
             .oz-stat { display: flex; flex-direction: column; line-height: 1.1; white-space: nowrap; }
-            .oz-stat b { font-size: 15px; font-family: var(--mono); }
-            .oz-stat small { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-stat b { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+            .oz-stat small { font-size: 11.5px; color: var(--muted); }
             .oz-stat.warn b { color: var(--warn); }
             .oz-btn {
-                background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 5px 10px;
-                cursor: pointer; white-space: nowrap; font-size: 12px;
+                background: #0E1626; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 6px 11px;
+                cursor: pointer; white-space: nowrap; font-size: 12.5px;
             }
             .oz-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
-            .oz-btn.on { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.6); color: var(--accent); }
+            .oz-btn.on { background: rgba(91, 140, 255, 0.15); border-color: rgba(91, 140, 255, 0.6); color: var(--accent); }
             /* Airspace region toggles: one per region (Australia, Mexico), each switching that whole
                airspace - sectors, aircraft, ATIS and its entries in the lists - on or off. */
             .oz-regions { display: flex; gap: 4px; }
@@ -66,18 +69,18 @@
             .oz-sidebar { top: 72px; left: 12px; bottom: 12px; width: 340px; display: flex; flex-direction: column; overflow: hidden; }
             .oz-tabs { display: flex; border-bottom: 1px solid var(--line); }
             .oz-tabs button {
-                flex: 1; background: none; border: 0; padding: 10px 4px; cursor: pointer; color: var(--muted);
-                font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid transparent;
+                flex: 1; background: none; border: 0; padding: 11px 4px; cursor: pointer; color: var(--muted);
+                font-size: 12.5px; font-weight: 500; border-bottom: 2px solid transparent;
             }
-            .oz-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+            .oz-tabs button.active { color: var(--text); border-bottom-color: var(--text); }
             .oz-tabs .oz-badge { margin-left: 4px; }
             .oz-tab-body { flex: 1; overflow-y: auto; padding: 8px; }
             .oz-tab-body[hidden] { display: none; }
             .oz-search {
-                width: 100%; margin-bottom: 8px; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.12);
+                width: 100%; margin-bottom: 8px; background: #0E1626; border: 1px solid rgba(255, 255, 255, 0.12);
                 color: var(--text); border-radius: 6px; padding: 6px 8px; font: inherit;
             }
-            .oz-section-title { margin: 12px 4px 6px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+            .oz-section-title { margin: 12px 4px 6px; font-size: 11.5px; color: var(--muted); }
             .oz-empty { color: var(--faint); padding: 8px 4px; }
 
             .oz-row {
@@ -85,7 +88,7 @@
                 background: none; border: 1px solid transparent; border-radius: 8px; padding: 7px 8px; cursor: pointer;
             }
             .oz-row:hover { background: rgba(255, 255, 255, 0.04); }
-            .oz-row.selected { background: rgba(34, 211, 238, 0.08); border-color: rgba(34, 211, 238, 0.35); }
+            .oz-row.selected { background: rgba(91, 140, 255, 0.08); border-color: rgba(91, 140, 255, 0.35); }
             .oz-row .oz-main { flex: 1; min-width: 0; }
             .oz-row .oz-title { font-family: var(--mono); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .oz-row .oz-sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -97,7 +100,7 @@
             .oz-dot.off { background: var(--faint); }
 
             .oz-badge {
-                display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+                display: inline-block; font-size: 10.5px; font-weight: 700;
                 padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: var(--muted); vertical-align: 1px;
             }
             .oz-badge[hidden] { display: none; }
@@ -105,7 +108,7 @@
             .oz-badge.warn { background: rgba(251, 146, 60, 0.18); color: var(--warn); }
             .oz-badge.bad { background: rgba(248, 113, 113, 0.18); color: var(--bad); }
             .oz-badge.good { background: rgba(74, 222, 128, 0.15); color: var(--good); }
-            .oz-badge.accent { background: rgba(34, 211, 238, 0.15); color: var(--accent); }
+            .oz-badge.accent { background: rgba(91, 140, 255, 0.15); color: var(--accent); }
 
             .oz-chip {
                 display: inline-flex; align-items: center; gap: 5px; margin: 2px 3px 2px 0; padding: 2px 7px;
@@ -122,15 +125,15 @@
             .oz-detail[hidden] { display: none; }
             .oz-detail-head { display: flex; align-items: flex-start; gap: 10px; }
             .oz-detail-head .oz-swatch { width: 14px; height: 14px; margin-top: 4px; }
-            .oz-detail h2 { margin: 0; font-size: 17px; font-family: var(--mono); }
-            .oz-detail .oz-kind { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+            .oz-detail h2 { margin: 0; font-size: 18px; font-weight: 500; font-family: var(--mono); }
+            .oz-detail .oz-kind { font-size: 11.5px; color: var(--muted); }
             .oz-close { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
             .oz-close:hover { color: var(--text); }
             .oz-kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; margin-top: 12px; }
             .oz-kv dt { color: var(--muted); }
             .oz-kv dd { margin: 0; font-family: var(--mono); word-break: break-word; }
             .oz-block { margin-top: 14px; }
-            .oz-block h4 { margin: 0 0 6px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+            .oz-block h4 { margin: 0 0 6px; font-size: 11.5px; color: var(--muted); font-weight: 600; }
             .oz-note-box { margin-top: 12px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
             .oz-note-box.flow { background: rgba(167, 139, 250, 0.1); border: 1px solid rgba(167, 139, 250, 0.3); color: #ddd6fe; }
             .oz-note-box.warn { background: rgba(251, 146, 60, 0.08); border: 1px solid rgba(251, 146, 60, 0.3); color: #fed7aa; }
@@ -152,7 +155,7 @@
             /* ---------- layers ---------- */
             .oz-layers { border-top: 1px solid var(--line); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
             .oz-layers label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; cursor: pointer; }
-            .oz-legend { border-top: 1px solid var(--line); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--faint); font-size: 10px; }
+            .oz-legend { border-top: 1px solid var(--line); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--faint); font-size: 11.5px; }
             .oz-legend span { display: inline-flex; align-items: center; gap: 5px; }
             .oz-legend .l-req { width: 14px; border-top: 2px dashed var(--warn); }
             .oz-legend .l-sel { width: 14px; border-top: 2px solid #fff; }
@@ -162,13 +165,13 @@
 
             .oz-filters { border-top: 1px solid var(--line); padding: 8px 10px 2px; }
             .oz-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-            .oz-filter-row > span { width: 46px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+            .oz-filter-row > span { width: 46px; font-size: 11.5px; color: var(--muted); }
             .oz-filter-row > div { display: flex; gap: 4px; flex-wrap: wrap; }
             .oz-toggle {
                 padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono); cursor: pointer;
                 border: 1px solid rgba(255, 255, 255, 0.14); background: transparent; color: var(--faint);
             }
-            .oz-toggle.on { background: rgba(133, 133, 133, 0.28); border-color: rgba(200, 200, 200, 0.5); color: var(--text); }
+            .oz-toggle.on { background: rgba(91, 140, 255, 0.2); border-color: rgba(132, 168, 255, 0.55); color: var(--text); }
             .oz-filter-row[data-offline] .oz-toggle.on { background: rgba(71, 85, 105, 0.35); }
 
             /* Aerodrome counts: activated FDRs not yet departed, and completed ones. */
@@ -183,7 +186,7 @@
             .oz-ad.selected { border-color: #fff; }
             .oz-ad-popup { font-size: 12px; min-width: 240px; }
             .oz-ad-popup h3 { margin: 0 0 6px; font-size: 14px; font-family: var(--mono); }
-            .oz-ad-popup h4 { margin: 8px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+            .oz-ad-popup h4 { margin: 8px 0 4px; font-size: 11.5px; color: var(--muted); }
             .oz-ad-popup table { width: 100%; border-collapse: collapse; }
             .oz-ad-popup td { padding: 2px 4px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
             .oz-ad-popup td:first-child { color: #f1f5f9; font-weight: 600; }
@@ -196,7 +199,7 @@
             .oz-ac { cursor: pointer; transition: opacity 0.2s; }
             .oz-ac svg { display: block; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
             .oz-ac .oz-ac-label {
-                position: absolute; left: 14px; top: -4px; font-family: var(--mono); font-size: 10px; white-space: nowrap;
+                position: absolute; left: 14px; top: -4px; font-family: var(--mono); font-size: 11.5px; white-space: nowrap;
                 color: var(--c, #cbd5e1); text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; display: none;
             }
             body.show-ac-labels .oz-ac .oz-ac-label { display: block; }
@@ -214,13 +217,13 @@
                station has gone and this is the last ATIS the server still holds for the airport. */
             .oz-atis-marker {
                 width: 22px; height: 22px; border-radius: 50%; background: #7f1d1d; border: 2px solid #b91c1c; color: #fee2e2;
-                display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; cursor: pointer;
             }
             .oz-atis-marker.saved { background: #cbd5e1; border-color: #94a3b8; color: #1e293b; }
             .oz-legend .l-atis { width: 9px; height: 9px; border-radius: 50%; background: #7f1d1d; border: 2px solid #b91c1c; }
             .oz-legend .l-atis.saved { background: #cbd5e1; border-color: #94a3b8; }
 
-            .mapboxgl-popup-content { background: #0f172a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+            .mapboxgl-popup-content { background: #0E1626; color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
             .mapboxgl-popup-tip { display: none; }
             .mapboxgl-ctrl-bottom-left { left: 364px; }
 
@@ -241,7 +244,7 @@
         <div id="map"></div>
 
         <header class="oz-panel oz-topbar">
-            <div class="oz-brand">Oz<span>Server</span> Live Map</div>
+            <a class="oz-brand" href="/" title="OzServer home">@include('partials.mark')OzServer <span>Live map</span></a>
             <select id="oz-server-select" aria-label="Server"></select>
             <div class="oz-regions" id="oz-regions" role="group" aria-label="Airspace"></div>
             <div class="oz-stats" id="oz-stats"></div>
@@ -283,11 +286,11 @@
                 <label><input type="checkbox" data-layer="atis"> ATIS</label>
             </div>
             <div class="oz-legend">
-                <span><i class="oz-swatch" style="--c:rgb(133,133,133)"></i>Online</span>
-                <span><i class="oz-swatch" style="--c:#22d3ee"></i>Highlighted</span>
+                <span><i class="oz-swatch" style="--c:#5B8CFF"></i>Online</span>
+                <span><i class="oz-swatch" style="--c:#A9C1FF"></i>Highlighted</span>
                 <span><i class="l-sel"></i>Selected</span>
                 <span><i class="l-req"></i>Requested</span>
-                <span><i class="oz-swatch" style="--c:#fdba74"></i>Held without the plugin</span>
+                <span><i class="oz-swatch" style="--c:#E6BE7C"></i>Held without the plugin</span>
                 <span><i class="l-tri" style="--c:#16a34a"></i>Owned tag</span>
                 <span><i class="l-tri" style="--c:#94a3b8"></i>No owner</span>
                 <span><i class="l-box"></i>Not coupled</span>
@@ -336,13 +339,13 @@
             if (new URLSearchParams(window.location.search).get('embed') === '1') document.body.classList.add('oz-embed');
 
             const TYPE_RANK = { FMP: 0, CTR: 1, FSS: 1, APP: 2, DEP: 2, TWR: 3, GND: 4, DEL: 4 };
-            const UNSTAFFED_COLOUR = '#475569';
-            const INFILL_COLOUR = 'rgb(133, 133, 133)'; // vatSys's own "Infill" (Colours.xml) - an online sector
-            const HIGHLIGHT_COLOUR = '#22d3ee';
+            const UNSTAFFED_COLOUR = '#3A4866';
+            const INFILL_COLOUR = '#5B8CFF'; // an online sector: the homepage chart's "On OzServer" blue
+            const HIGHLIGHT_COLOUR = '#A9C1FF';
             const REQUEST_COLOUR = '#fb923c';
             // Airspace a controller works without the plugin (the API's external holdings): held,
-            // so nobody on OzServer can claim it, but not through OzServer. A faint orange tinge.
-            const EXTERNAL_COLOUR = '#fdba74';
+            // so nobody on OzServer can claim it, but not through OzServer. The sand of the homepage chart.
+            const EXTERNAL_COLOUR = '#E6BE7C';
             const TRACKED_COLOUR = '#16a34a';   // a tag someone owns
             const UNTRACKED_COLOUR = '#94a3b8'; // a tag coasting with no owner (kept current by its data authority)
 
@@ -629,7 +632,7 @@
                     id: 'sectors-line', type: 'line', source: 'sectors',
                     paint: {
                         'line-color': ['case', fs('hl'), ['coalesce', ['feature-state', 'colour'], HIGHLIGHT_COLOUR],
-                            fs('owned'), '#a3a3a3', '#334155'],
+                            fs('owned'), '#8EA3CC', '#2A3855'],
                         'line-width': ['case', fs('hl'), 2.2, fs('owned'), 1.1, 0.6],
                         'line-opacity': ['case',
                             hidden, 0,
@@ -657,8 +660,8 @@
                         'symbol-sort-key': ['-', 10, ['get', 'rank']],
                     },
                     paint: {
-                        'text-color': ['case', fs('hl'), ['coalesce', ['feature-state', 'colour'], HIGHLIGHT_COLOUR], fs('owned'), '#e5e5e5', '#94a3b8'],
-                        'text-halo-color': '#020617', 'text-halo-width': 1.2,
+                        'text-color': ['case', fs('hl'), ['coalesce', ['feature-state', 'colour'], HIGHLIGHT_COLOUR], fs('owned'), '#EEF2FB', '#9AA6C2'],
+                        'text-halo-color': '#060A13', 'text-halo-width': 1.2,
                         'text-opacity': ['case', hidden, 0, fs('sel'), 1, fs('hl'), 1, fs('dim'), 0, fs('owned'), 0.9, 0],
                     },
                 });
@@ -684,7 +687,7 @@
                 });
                 map.addLayer({
                     id: 'route-points', type: 'circle', source: 'route-points',
-                    paint: { 'circle-radius': 3, 'circle-color': '#020617', 'circle-stroke-width': 1.5,
+                    paint: { 'circle-radius': 3, 'circle-color': '#060A13', 'circle-stroke-width': 1.5,
                         'circle-stroke-color': ['case', ['get', 'boundary'], BOUNDARY_COLOUR, ['get', 'colour']] },
                 });
                 map.addLayer({
@@ -694,7 +697,7 @@
                         'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                     },
                     paint: { 'text-color': ['case', ['get', 'boundary'], BOUNDARY_LABEL_COLOUR, '#cbd5e1'],
-                        'text-halo-color': '#020617', 'text-halo-width': 1.2,
+                        'text-halo-color': '#060A13', 'text-halo-width': 1.2,
                         'text-opacity': ['case', ['get', 'passed'], 0.45, 1] },
                 });
 
@@ -926,7 +929,7 @@
                 if (!coupled) {
                     return `<svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" fill="none" stroke="${colour}" stroke-width="2"/></svg>`;
                 }
-                return `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 14,16 8,12 2,16" fill="${colour}" stroke="#020617" stroke-width="0.8"/></svg>`;
+                return `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 14,16 8,12 2,16" fill="${colour}" stroke="#060A13" stroke-width="0.8"/></svg>`;
             }
 
             // Where an FDR belongs on the map:
