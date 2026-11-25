@@ -418,7 +418,7 @@
                     <p class="oz-kicker">Traffic</p>
                     <h2>Arrival List</h2>
                     <p>The Arrival List (for example <code>A:YSSY List</code>) is shared. Every controller sees the same flights in the same order: every departed flight inbound, with its landing time, type and global ops.</p>
-                    {!! $shot('arrival-list.png', 'The shared Arrival List for YSSY, with the viewer and FMP badges above the list.') !!}
+                    {!! $shot('arrival-list.png', 'The shared Arrival List for YMML, with the viewer and FMP badges above the list.') !!}
                     <ul>
                         <li><b>Reordering:</b> anyone can reorder the list, unless the airport's FMP (<code>SY_FMP</code> for YSSY) is online. Then only the FMP can.</li>
                         <li><b>Badges above the list</b> show how many controllers have it open (hover over it to see who) and whether the FMP is online.</li>
