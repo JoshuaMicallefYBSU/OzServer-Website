@@ -329,7 +329,7 @@
                                     <option value="10080">1 week</option>
                                 </select>
                             </div>
-                            <div class="oz-hint" id="targeted-note" hidden>Only the controllers ticked will get it - nobody who connects later.</div>
+                            <div class="oz-hint" id="targeted-note" hidden>Goes to the callsigns ticked, on the server each is on, for the next 24 hours: whoever is logged on as one of them in that time gets it, and nobody else.</div>
                             <label class="oz-check"><input type="checkbox" id="m-reply" checked> Let controllers reply</label>
                             <button type="submit" class="oz-btn primary" id="m-send">Send</button>
                             <div class="oz-status" id="m-status"></div>
@@ -352,8 +352,9 @@
             const STATE_POLL_MS = 10000;   // connected controllers, sector ownership, sent messages
             const MAX_EVENTS = 4000;
 
-            // Every value shown came from a plugin or a person, so all of it is escaped.
-            const esc = value => { const d = document.createElement('div'); d.textContent = value == null ? '' : String(value); return d.innerHTML; };
+            // Every value shown came from a plugin or a person, so all of it is escaped - quotes
+            // included, since some of it goes into attributes.
+            const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const hhmmss = iso => new Date(iso).toISOString().slice(11, 19) + 'z';
             const stamp = iso => iso ? new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + 'z' : '';
             const ago = iso => {
@@ -390,6 +391,8 @@
                 const password = document.getElementById('gate-password').value;
                 const result = await consoleFetch('/console/unlock', { method: 'POST', body: JSON.stringify({ password }) });
                 if (result.ok) return unlock();
+                // The page sat open until its session ran out: a fresh one, not "wrong password".
+                if (result.status === 419) return window.location.reload();
                 const error = document.getElementById('gate-error');
                 error.textContent = result.status === 429 ? 'Too many attempts - wait a minute.' : 'Incorrect password.';
                 error.hidden = false;
@@ -588,12 +591,14 @@
             const liveEl = document.getElementById('live');
             function setLive(on, text) { liveEl.classList.toggle('on', on); liveEl.querySelector('span').textContent = text; }
 
+            // Through this site (/console/api/logs), which reads the API for the unlocked console.
             async function fetchLogs(since, limit) {
                 const params = new URLSearchParams({ since, limit: String(limit) });
                 if (state.server !== 'all') params.set('server', state.server);
-                const response = await fetch(`${apiBaseUrl}/api/v1/client-logs?${params}`, { headers: { Accept: 'application/json' } });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.json();
+                const r = await consoleFetch(`/console/api/logs?${params}`);
+                if (r.status === 401) { window.location.reload(); throw new Error('locked'); }
+                if (!r.ok || !Array.isArray(r.body)) throw new Error(`HTTP ${r.status}`);
+                return r.body;
             }
 
             async function backfill() {
@@ -809,16 +814,27 @@
                     .sort((a, b) => a.callsign.localeCompare(b.callsign));
             }
 
+            const serverOf = k => k.slice(0, k.indexOf('|'));
+            const callsignOf = k => k.slice(k.indexOf('|') + 1);
+
+            // Chosen recipients who cannot be sent to as things stand: their plugin has stopped
+            // calling, or they are not on the server picked above. They stay ticked - taking one
+            // out would quietly leave "Everyone" - and nothing is sent until they are unticked
+            // or back.
+            function unreachable() {
+                const valid = new Set(pickable().map(c => `${c.server}|${c.callsign}`));
+                return [...chosen].filter(k => !valid.has(k));
+            }
+
             function renderPicker() {
                 const options = pickable();
-                const valid = new Set(options.map(c => `${c.server}|${c.callsign}`));
-                for (const k of [...chosen]) if (!valid.has(k)) chosen.delete(k);
+                const row = (k, note) => `<label><input type="checkbox" data-key="${esc(k)}" ${chosen.has(k) ? 'checked' : ''}> ${esc(callsignOf(k))} <span class="oz-badge srv-${esc(serverOf(k))}">${esc(serverOf(k))}</span>${note}</label>`;
+                const away = k => `<span class="oz-badge warn">${msgServer.value !== 'all' && serverOf(k) !== msgServer.value ? 'not on this server' : 'not connected'}</span>`;
 
                 pickerList.innerHTML = `<label class="all"><input type="checkbox" data-all ${chosen.size === 0 ? 'checked' : ''}> Everyone</label>` +
-                    (options.length ? options.map(c => {
-                        const k = `${c.server}|${c.callsign}`;
-                        return `<label><input type="checkbox" data-key="${esc(k)}" ${chosen.has(k) ? 'checked' : ''}> ${esc(c.callsign)} <span class="oz-badge srv-${esc(c.server)}">${esc(c.server)}</span></label>`;
-                    }).join('') : '<div class="oz-empty">No controllers connected.</div>');
+                    unreachable().map(k => row(k, ' ' + away(k))).join('') +
+                    (options.length ? options.map(c => row(`${c.server}|${c.callsign}`, '')).join('')
+                        : '<div class="oz-empty">No controllers connected.</div>');
 
                 pickerList.querySelector('[data-all]').addEventListener('change', () => { chosen.clear(); renderPicker(); });
                 for (const box of pickerList.querySelectorAll('[data-key]')) {
@@ -826,7 +842,7 @@
                 }
 
                 const label = document.getElementById('picker-label');
-                const names = [...chosen].map(k => k.split('|')[1]);
+                const names = [...chosen].map(callsignOf);
                 label.textContent = names.length === 0 ? 'Everyone' : names.length <= 2 ? names.join(', ') : `${names.length} controllers`;
                 // Chosen controllers get it whenever their plugin next asks - no "show for".
                 document.getElementById('expires-row').hidden = names.length > 0;
@@ -897,32 +913,48 @@
                 form.addEventListener('submit', async e => {
                     e.preventDefault();
                     const server = msgServer.value;
-                    const callsigns = [...chosen].map(k => k.split('|')[1]);
                     const payload = {
                         title: document.getElementById('m-title').value.trim(),
                         body: document.getElementById('m-body').value.trim(),
-                        server,
-                        callsigns,
                         allow_reply: document.getElementById('m-reply').checked,
                         expires_minutes: Number(document.getElementById('m-expires').value),
                     };
                     if (!payload.body) return setStatus('Write a message first.', 'err');
-                    const audience = callsigns.length ? callsigns.join(', ') : `everyone on ${server === 'all' ? 'all servers' : server}`;
+                    const missing = unreachable();
+                    if (missing.length) return setStatus(`Not sent: ${missing.map(callsignOf).join(', ')} cannot be reached here - untick them, or wait until they are back.`, 'err');
+
+                    // Everyone: one message. Chosen controllers: one per server they are on, since
+                    // the API matches a callsign on whichever servers the message covers and the
+                    // same callsign on a SweatBox is somebody else.
+                    const sends = chosen.size === 0 ? [{ server, keys: [] }]
+                        : [...new Set([...chosen].map(serverOf))].map(s => ({ server: s, keys: [...chosen].filter(k => serverOf(k) === s) }));
+                    const audience = chosen.size ? [...chosen].map(callsignOf).join(', ') : `everyone on ${server === 'all' ? 'all servers' : server}`;
                     if (!confirm(`Send to ${audience}?`)) return;
 
                     sendButton.disabled = true;
                     setStatus('Sending…');
-                    const r = await consoleFetch('/console/api/messages', { method: 'POST', body: JSON.stringify(payload) });
+                    const failed = [];
+                    for (const send of sends) {
+                        const r = await consoleFetch('/console/api/messages', { method: 'POST', body: JSON.stringify({ ...payload, server: send.server, callsigns: send.keys.map(callsignOf) }) });
+                        if (r.ok) continue;
+                        const errors = r.body?.errors ? Object.values(r.body.errors).flat().join(' ') : '';
+                        failed.push({ send, reason: errors || r.body?.message || `Could not send (HTTP ${r.status}).` });
+                    }
                     sendButton.disabled = false;
-                    if (r.ok) {
+                    if (failed.length === 0) {
                         document.getElementById('m-title').value = '';
                         document.getElementById('m-body').value = '';
                         setStatus(`Sent to ${audience}.`, 'ok');
-                        load();
+                    } else if (sends.length === 1) {
+                        setStatus(failed[0].reason, 'err');
                     } else {
-                        const errors = r.body?.errors ? Object.values(r.body.errors).flat().join(' ') : '';
-                        setStatus(errors || r.body?.message || `Could not send (HTTP ${r.status}).`, 'err');
+                        // Some servers took it: those controllers are unticked, so sending again
+                        // reaches only the ones still to go. The failed ones stay ticked.
+                        for (const send of sends) if (!failed.some(f => f.send === send)) for (const k of send.keys) chosen.delete(k);
+                        renderPicker();
+                        setStatus(`Not sent to ${failed.flatMap(f => f.send.keys.map(callsignOf)).join(', ')}: ${failed[0].reason}`, 'err');
                     }
+                    if (failed.length < sends.length) load();
                 });
 
                 let timer = null;

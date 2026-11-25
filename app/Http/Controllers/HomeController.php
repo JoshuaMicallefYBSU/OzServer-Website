@@ -53,7 +53,10 @@ class HomeController extends Controller
     {
         $allSectors = $this->sectorShapes()->keyBy('name');
 
+        // Australian airspace only: the API serves other regions' sectors too (Mexico), which fall
+        // far outside this map's bounds and were being embedded in the page unseen.
         $ctrSectors = $allSectors->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
+            && ($sector['region'] ?? 'australia') === 'australia'
             && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true));
 
         $primaries = $allSectors->only(Arr::flatten(self::ACTIVATED_SECTOR_GROUPS));

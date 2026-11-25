@@ -348,9 +348,9 @@
             // The map's position filters: which kinds of sector are drawn, separately for online
             // (someone holds it) and offline. Categories follow the controller positions, not the
             // dataset's raw types.
-            const CATEGORY_OF_TYPE = { DEL: 'ADC', GND: 'ADC', TWR: 'ADC', APP: 'APP', DEP: 'DEP', CTR: 'ENR', FSS: 'ENR', FMP: 'FMP' };
+            const CATEGORY_OF_TYPE = { DEL: 'ADC', GND: 'ADC', TWR: 'ADC', RMP: 'ADC', APP: 'APP', DEP: 'DEP', CTR: 'ENR', FSS: 'ENR', FMP: 'FMP' };
             const CATEGORIES = [
-                { id: 'ADC', label: 'ADC', title: 'Aerodrome: DEL, GND, TWR' },
+                { id: 'ADC', label: 'ADC', title: 'Aerodrome: DEL, GND, TWR, RMP' },
                 { id: 'APP', label: 'APP', title: 'Approach' },
                 { id: 'DEP', label: 'DEP', title: 'Departures' },
                 { id: 'ENR', label: 'ENR', title: 'En route: CTR, FSS' },
@@ -467,8 +467,16 @@
             function visibleFlights() { return state.flights.filter(flightOn); }
             function visibleRequests() { return (state.ops?.requests ?? []).filter((r) => sectorOn(r.sector)); }
 
-            function zulu(date) { return new Date(date).toISOString().slice(11, 19) + 'z'; }
-            function hhmm(iso) { return iso ? new Date(iso).toISOString().slice(11, 16) + 'z' : null; }
+            // A time a client sent that is not a time shows as "?": toISOString throws on one, and
+            // that took the whole list or popup it was in with it.
+            function isoTime(value) { const d = new Date(value); return Number.isNaN(d.getTime()) ? null : d.toISOString(); }
+            function zulu(date) { const iso = isoTime(date); return iso ? iso.slice(11, 19) + 'z' : '?'; }
+            function hhmm(iso) { if (!iso) return null; const time = isoTime(iso); return time ? time.slice(11, 16) + 'z' : '?'; }
+            // A position that can be put on the map. Flight data is whatever a client pushed, and
+            // Mapbox throws on a latitude past the poles.
+            function onGlobe(lat, lon) {
+                return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+            }
             function ago(iso) {
                 if (!iso) return '';
                 const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -547,8 +555,8 @@
                 for (let i = 1; i < ring.length; i++) {
                     const prevLon = out[i - 1][0];
                     let [lon, lat] = ring[i];
-                    while (lon - prevLon > 180) lon -= 360;
-                    while (lon - prevLon < -180) lon += 360;
+                    // Whole turns at once, not a loop that never ends on a wild longitude.
+                    lon -= 360 * Math.round((lon - prevLon) / 360);
                     out.push([lon, lat]);
                 }
                 return out;
@@ -634,7 +642,7 @@
                     id: 'sectors-requested', type: 'line', source: 'sectors',
                     paint: {
                         'line-color': REQUEST_COLOUR, 'line-width': 2.5, 'line-dasharray': [1.5, 1.2],
-                        'line-opacity': ['case', fs('req'), 1, 0],
+                        'line-opacity': ['case', hidden, 0, fs('req'), 1, 0],
                     },
                 });
                 map.addLayer({
@@ -811,7 +819,12 @@
             }
             function readHash() {
                 const match = /^#(controller|sector|flight|request)=(.+)$/.exec(window.location.hash);
-                return match ? { kind: match[1], id: decodeURIComponent(match[2]) } : null;
+                // A cut-off link can end in half a %XX, which decodeURIComponent throws on.
+                try {
+                    return match ? { kind: match[1], id: decodeURIComponent(match[2]) } : null;
+                } catch {
+                    return null;
+                }
             }
 
             // ---------------- rendering: map ----------------
@@ -933,15 +946,15 @@
             function aerodromePoint(f, which) {
                 const lat = which === 'dep' ? f.dep_lat : f.des_lat;
                 const lon = which === 'dep' ? f.dep_lon : f.des_lon;
-                if (Number.isFinite(lat) && Number.isFinite(lon)) return [lon, lat];
-                return Number.isFinite(f.lat) && Number.isFinite(f.lon) ? [f.lon, f.lat] : null;
+                if (onGlobe(lat, lon)) return [lon, lat];
+                return onGlobe(f.lat, f.lon) ? [f.lon, f.lat] : null;
             }
             // Where the map shows this flight - for flying to it from a list.
             function flightPoint(f) {
                 const category = flightCategory(f);
                 if (category === 'pending') return aerodromePoint(f, 'dep');
                 if (category === 'completed') return aerodromePoint(f, 'des');
-                return Number.isFinite(f.lat) && Number.isFinite(f.lon) ? [f.lon, f.lat] : null;
+                return onGlobe(f.lat, f.lon) ? [f.lon, f.lat] : null;
             }
 
             // Who has the tag: the OzServer controller tracking it, or - for a controller not on
@@ -1001,44 +1014,50 @@
                     groups.get(icao)[category].push(f);
                 }
 
+                // One aerodrome at a time: a record that cannot be drawn costs its own aerodrome,
+                // not every one after it.
                 for (const [icao, group] of groups) {
-                    let entry = aerodromeMarkers.get(icao);
-                    if (!entry) {
-                        const el = document.createElement('div');
-                        el.className = 'oz-ad';
-                        el.title = 'Show flights';
-                        // Opened by hand rather than through marker.setPopup: the popup has to stay
-                        // open across refreshes (its rows are how you open each FDR), and a click on
-                        // the marker must not also select whatever sector lies underneath it.
-                        const popup = new mapboxgl.Popup({ offset: 12, maxWidth: '520px', className: 'oz-ad-popup-wrap' });
-                        const marker = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [8, 0] });
-                        entry = { marker, el, popup, point: null, html: '' };
-                        el.addEventListener('click', (event) => {
-                            event.stopPropagation();
-                            if (popup.isOpen()) { popup.remove(); return; }
-                            popup.setLngLat(entry.point).setHTML(entry.html).addTo(map);
-                        });
-                        aerodromeMarkers.set(icao, entry);
+                    try {
+                        let entry = aerodromeMarkers.get(icao);
+                        if (!entry) {
+                            const el = document.createElement('div');
+                            el.className = 'oz-ad';
+                            el.title = 'Show flights';
+                            // Opened by hand rather than through marker.setPopup: the popup has to stay
+                            // open across refreshes (its rows are how you open each FDR), and a click on
+                            // the marker must not also select whatever sector lies underneath it.
+                            const popup = new mapboxgl.Popup({ offset: 12, maxWidth: '520px', className: 'oz-ad-popup-wrap' });
+                            const marker = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [8, 0] });
+                            entry = { marker, el, popup, point: null, html: '' };
+                            el.addEventListener('click', (event) => {
+                                event.stopPropagation();
+                                if (popup.isOpen()) { popup.remove(); return; }
+                                popup.setLngLat(entry.point).setHTML(entry.html).addTo(map);
+                            });
+                            aerodromeMarkers.set(icao, entry);
+                        }
+                        const sortByCallsign = (a, b) => a.callsign.localeCompare(b.callsign);
+                        group.pending.sort(sortByCallsign);
+                        group.completed.sort(sortByCallsign);
+                        entry.el.innerHTML = `<b>${esc(icao)}</b>`
+                            + (group.pending.length ? `<span class="up">▲${group.pending.length}</span>` : '')
+                            + (group.completed.length ? `<span class="down">▼${group.completed.length}</span>` : '');
+                        entry.el.classList.toggle('selected', !!focus?.flight
+                            && [...group.pending, ...group.completed].some((f) => f.callsign === focus.flight));
+                        entry.point = group.point;
+                        const html = aerodromePopupHtml(icao, group.pending, group.completed);
+                        // Rewritten only when it changed, so an open list is not reset under the pointer.
+                        if (html !== entry.html) {
+                            entry.html = html;
+                            if (entry.popup.isOpen()) entry.popup.setHTML(html);
+                        }
+                        if (entry.popup.isOpen()) entry.popup.setLngLat(group.point);
+                        entry.marker.setLngLat(group.point);
+                        setMarkerVisible(entry.marker, state.layers.aerodromes);
+                        if (!state.layers.aerodromes) entry.popup.remove();
+                    } catch (error) {
+                        console.warn('aerodrome', icao, error);
                     }
-                    const sortByCallsign = (a, b) => a.callsign.localeCompare(b.callsign);
-                    group.pending.sort(sortByCallsign);
-                    group.completed.sort(sortByCallsign);
-                    entry.el.innerHTML = `<b>${esc(icao)}</b>`
-                        + (group.pending.length ? `<span class="up">▲${group.pending.length}</span>` : '')
-                        + (group.completed.length ? `<span class="down">▼${group.completed.length}</span>` : '');
-                    entry.el.classList.toggle('selected', !!focus?.flight
-                        && [...group.pending, ...group.completed].some((f) => f.callsign === focus.flight));
-                    entry.point = group.point;
-                    const html = aerodromePopupHtml(icao, group.pending, group.completed);
-                    // Rewritten only when it changed, so an open list is not reset under the pointer.
-                    if (html !== entry.html) {
-                        entry.html = html;
-                        if (entry.popup.isOpen()) entry.popup.setHTML(html);
-                    }
-                    if (entry.popup.isOpen()) entry.popup.setLngLat(group.point);
-                    entry.marker.setLngLat(group.point);
-                    setMarkerVisible(entry.marker, state.layers.aerodromes);
-                    if (!state.layers.aerodromes) entry.popup.remove();
                 }
                 for (const [icao, entry] of aerodromeMarkers) {
                     if (!groups.has(icao)) { entry.popup.remove(); setMarkerVisible(entry.marker, false); aerodromeMarkers.delete(icao); }
@@ -1046,45 +1065,50 @@
             }
 
             function renderAircraft() {
-                renderAerodromes();
+                // Aerodromes failing must not stop the aircraft being drawn, nor one aircraft the rest.
+                try { renderAerodromes(); } catch (error) { console.warn('renderAerodromes', error); }
                 const focus = selectionFocus();
                 const seen = new Set();
                 for (const flight of visibleFlights()) {
-                    if (flightCategory(flight) !== 'airborne') continue;
-                    if (!Number.isFinite(flight.lat) || !Number.isFinite(flight.lon)) continue;
-                    seen.add(flight.callsign);
-                    let entry = aircraftMarkers.get(flight.callsign);
-                    if (!entry) {
-                        const el = document.createElement('div');
-                        el.className = 'oz-ac';
-                        el.addEventListener('click', (event) => {
-                            event.stopPropagation();
-                            select({ kind: 'flight', id: flight.callsign }, { fly: false });
-                        });
-                        const marker = new mapboxgl.Marker({ element: el });
-                        entry = { marker, el, colour: null };
-                        aircraftMarkers.set(flight.callsign, entry);
-                    }
-                    const colour = ownerOf(flight) ? TRACKED_COLOUR : UNTRACKED_COLOUR;
-                    const coupled = flight.coupled !== false;
-                    const look = `${colour}|${coupled}`;
-                    if (entry.colour !== look) {
-                        entry.el.innerHTML = aircraftSvg(colour, coupled) + `<span class="oz-ac-label"></span>`;
-                        entry.colour = look;
-                    }
-                    const label = entry.el.querySelector('.oz-ac-label');
-                    label.textContent = `${flight.callsign} ${flight.altitude != null ? Math.round(flight.altitude / 100).toString().padStart(3, '0') : ''}`;
-                    label.style.setProperty('--c', colour);
-                    // A box has no heading to show.
-                    entry.el.querySelector('svg').style.transform = coupled ? `rotate(${flight.heading ?? 0}deg)` : '';
+                    try {
+                        if (flightCategory(flight) !== 'airborne') continue;
+                        if (!onGlobe(flight.lat, flight.lon)) continue;
+                        seen.add(flight.callsign);
+                        let entry = aircraftMarkers.get(flight.callsign);
+                        if (!entry) {
+                            const el = document.createElement('div');
+                            el.className = 'oz-ac';
+                            el.addEventListener('click', (event) => {
+                                event.stopPropagation();
+                                select({ kind: 'flight', id: flight.callsign }, { fly: false });
+                            });
+                            const marker = new mapboxgl.Marker({ element: el });
+                            entry = { marker, el, colour: null };
+                            aircraftMarkers.set(flight.callsign, entry);
+                        }
+                        const colour = ownerOf(flight) ? TRACKED_COLOUR : UNTRACKED_COLOUR;
+                        const coupled = flight.coupled !== false;
+                        const look = `${colour}|${coupled}`;
+                        if (entry.colour !== look) {
+                            entry.el.innerHTML = aircraftSvg(colour, coupled) + `<span class="oz-ac-label"></span>`;
+                            entry.colour = look;
+                        }
+                        const label = entry.el.querySelector('.oz-ac-label');
+                        label.textContent = `${flight.callsign} ${flight.altitude != null ? Math.round(flight.altitude / 100).toString().padStart(3, '0') : ''}`;
+                        label.style.setProperty('--c', colour);
+                        // A box has no heading to show.
+                        entry.el.querySelector('svg').style.transform = coupled ? `rotate(${flight.heading ?? 0}deg)` : '';
 
-                    entry.el.title = `${flight.callsign}${ownerOf(flight) ? ' - ' + ownerOf(flight) : ' - no owner'}`;
-                    entry.el.classList.toggle('handover', isHandover(flight.state));
-                    entry.el.classList.toggle('selected', focus?.flight === flight.callsign);
-                    entry.el.classList.toggle('dim', !!focus && !focus.flight && focus.controller !== flight.controlling_callsign
-                        && !(focus.selected && flight.current_sector === focus.selected));
-                    entry.marker.setLngLat([flight.lon, flight.lat]);
-                    setMarkerVisible(entry.marker, state.layers.aircraft);
+                        entry.el.title = `${flight.callsign}${ownerOf(flight) ? ' - ' + ownerOf(flight) : ' - no owner'}`;
+                        entry.el.classList.toggle('handover', isHandover(flight.state));
+                        entry.el.classList.toggle('selected', focus?.flight === flight.callsign);
+                        entry.el.classList.toggle('dim', !!focus && !focus.flight && focus.controller !== flight.controlling_callsign
+                            && !(focus.selected && flight.current_sector === focus.selected));
+                        entry.marker.setLngLat([flight.lon, flight.lat]);
+                        setMarkerVisible(entry.marker, state.layers.aircraft);
+                    } catch (error) {
+                        console.warn('aircraft', flight?.callsign, error);
+                    }
                 }
                 for (const [callsign, entry] of aircraftMarkers) {
                     if (!seen.has(callsign)) { setMarkerVisible(entry.marker, false); aircraftMarkers.delete(callsign); }
@@ -1106,11 +1130,19 @@
 
             async function refreshRoutes() {
                 if (!routesWanted()) return;
+                const server = currentServer;
                 try {
                     const rows = await getJson('/api/v1/map/routes');
+                    if (server !== currentServer) return;
                     routes.clear();
+                    // A point with no usable position is dropped - anything can be pushed as a route -
+                    // and the next-waypoint index moved back by however many of those came before it.
+                    const usable = (p) => !!p && onGlobe(p.lat, p.lon);
                     for (const row of rows) {
-                        if (Array.isArray(row.route_points)) routes.set(row.callsign, { points: row.route_points, next: row.route_next_index ?? 0 });
+                        if (!Array.isArray(row.route_points)) continue;
+                        const next = Number.isInteger(row.route_next_index) ? row.route_next_index : 0;
+                        const droppedBefore = row.route_points.slice(0, Math.max(next, 0)).filter((p) => !usable(p)).length;
+                        routes.set(row.callsign, { points: row.route_points.filter(usable), next: next - droppedBefore });
                     }
                     routesLoaded = true;
                     renderRoutes();
@@ -1125,8 +1157,7 @@
                 for (let i = 1; i < coords.length; i++) {
                     let [lon, lat] = coords[i];
                     const prev = out[i - 1][0];
-                    while (lon - prev > 180) lon -= 360;
-                    while (lon - prev < -180) lon += 360;
+                    lon -= 360 * Math.round((lon - prev) / 360);
                     out.push([lon, lat]);
                 }
                 return out;
@@ -1155,7 +1186,7 @@
 
                     // From the aircraft itself to the next waypoint and on, so the line starts where
                     // the tag is rather than at a waypoint already behind it.
-                    const here = category === 'airborne' && Number.isFinite(flight.lat) ? [[flight.lon, flight.lat]] : [];
+                    const here = category === 'airborne' && onGlobe(flight.lat, flight.lon) ? [[flight.lon, flight.lat]] : [];
                     const remaining = unwrapLine([...here, ...coords.slice(next)]);
                     if (remaining.length > 1) {
                         lines.push({ type: 'Feature', properties: { kind: 'remaining', colour, selected },
@@ -1742,8 +1773,12 @@
             // ---------------- data ----------------
 
             async function refreshOps() {
+                // Asked for under one server and answered after the dropdown moved to another: not
+                // this view's data. The same check follows every read below.
+                const server = currentServer;
                 try {
                     const ops = await getJson('/api/v1/map/ops');
+                    if (server !== currentServer) return;
                     diffOps(state.ops, ops);
                     state.ops = ops;
                     state.owners = new Map(ops.ownerships.map((o) => [o.sector, o]));
@@ -1757,8 +1792,10 @@
             }
 
             async function refreshAircraft() {
+                const server = currentServer;
                 try {
                     const flights = await getJson('/api/v1/map/aircraft');
+                    if (server !== currentServer) return;
                     const prev = state.flights.length || state.flightsLoaded ? new Map(state.flights.map((f) => [f.callsign, f])) : null;
                     diffFlights(prev, flights);
                     state.flights = flights;
@@ -1772,8 +1809,10 @@
             }
 
             async function refreshAtis() {
+                const server = currentServer;
                 try {
                     const atis = await getJson('/api/v1/map/atis');
+                    if (server !== currentServer) return;
                     diffAtis(state.atisLoaded ? new Map(state.atis.map((a) => [a.icao, a.atis_letter])) : null, atis);
                     state.atis = atis;
                     state.atisLoaded = true;
@@ -1785,8 +1824,11 @@
             }
 
             async function refreshVatsimControllers() {
+                const server = currentServer;
                 try {
-                    state.vatsimControllers = await getJson('/api/v1/map/controllers');
+                    const controllers = await getJson('/api/v1/map/controllers');
+                    if (server !== currentServer) return;
+                    state.vatsimControllers = controllers;
                     renderControllers();
                 } catch (error) {
                     console.warn(error);
@@ -1830,13 +1872,25 @@
             // The API pushes bare "something changed" signals per server; the page re-reads the
             // matching endpoint. The interval poll stays underneath as the fallback.
             let eventSource = null;
+            let streamRetry = null;
+            const STREAM_RETRY_MS = 30000;
             function subscribeToEvents() {
                 if (!window.EventSource) return;
                 if (eventSource) eventSource.close();
+                if (streamRetry !== null) { clearTimeout(streamRetry); streamRetry = null; }
                 state.streamOpen = false;
-                eventSource = new EventSource(apiUrl('/api/v1/events'));
+                const source = eventSource = new EventSource(apiUrl('/api/v1/events'));
                 eventSource.onopen = () => { state.streamOpen = true; renderStats(); };
-                eventSource.onerror = () => { state.streamOpen = false; renderStats(); };
+                eventSource.onerror = () => {
+                    state.streamOpen = false;
+                    renderStats();
+                    // The browser reconnects by itself after a dropped connection, but a refusal
+                    // (a 502 while the API restarts, a 503 when it has too many streams) closes
+                    // the stream for good. Asked for again half a minute later, once.
+                    if (source.readyState === EventSource.CLOSED && source === eventSource && streamRetry === null) {
+                        streamRetry = setTimeout(() => { streamRetry = null; subscribeToEvents(); }, STREAM_RETRY_MS);
+                    }
+                };
                 const onOps = coalesce(refreshOps, 250);
                 eventSource.addEventListener('sectors', onOps);
                 eventSource.addEventListener('fdr', coalesce(refreshAircraft, 1000));
@@ -2011,26 +2065,49 @@
             // Start-up does not wait for the map's 'load' (which waits for every base-map tile): the
             // panels fill as soon as the data arrives, and the sector layers go in the moment the
             // style itself is usable.
-            const shapesReady = getJson('/api/v1/map/sector-shapes', false).catch((error) => { console.warn(error); return []; });
+            const fetchShapes = () => getJson('/api/v1/map/sector-shapes', false).catch((error) => { console.warn(error); return []; });
+            const shapesReady = fetchShapes();
             const styleReady = new Promise((resolve) => {
                 if (map.isStyleLoaded()) resolve(); else map.once('style.load', resolve);
             });
 
-            (async () => {
-                const shapes = await shapesReady;
-                // Shapes first even without the map: sector names, types and subsectors drive the panels.
-                for (const shape of shapes) {
+            // Shapes first even without the map: sector names, types and subsectors drive the panels.
+            function shapesForPanels(list) {
+                for (const shape of list) {
                     state.shapes.set(shape.name, { ...shape, rank: TYPE_RANK[shape.type] ?? 2, drawn: false, bbox: null, area: Infinity });
                 }
+            }
+
+            let shapes = [];
+            let styleLoaded = false;
+            let retryingShapes = false;
+            // The shapes are read once, and that read can fail (an API restart as the page opens).
+            // Nothing asked again, so the map stayed without sectors until reloaded: the poll now
+            // asks until there are some.
+            async function retryShapes() {
+                if (state.shapes.size > 0 || retryingShapes) return;
+                retryingShapes = true;
+                const fetched = await fetchShapes();
+                retryingShapes = false;
+                if (!fetched.length || state.shapes.size > 0) return;
+                shapes = fetched;
+                if (styleLoaded) { loadShapes(shapes); applyLayerVisibility(); } else shapesForPanels(shapes);
+                renderAll();
+            }
+
+            (async () => {
+                shapes = await shapesReady;
+                shapesForPanels(shapes);
                 await Promise.all([refreshOps(), refreshAircraft(), refreshAtis(), refreshVatsimControllers()]);
                 const fromHash = readHash();
                 if (fromHash) select(fromHash, { fromHash: true, fly: false });
-                setInterval(refreshAll, POLL_INTERVAL_MS);
+                setInterval(() => { refreshAll(); retryShapes(); }, POLL_INTERVAL_MS);
                 setAllRoutes(!!state.layers.routes);
                 document.getElementById('oz-routes-btn').addEventListener('click', () => setAllRoutes(!state.layers.routes));
                 subscribeToEvents();
 
                 await styleReady;
+                styleLoaded = true;
                 loadShapes(shapes);
                 applyLayerVisibility();
                 renderAll();

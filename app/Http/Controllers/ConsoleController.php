@@ -14,8 +14,8 @@ use Illuminate\View\View;
 // The password is checked here, on the server, and remembered in the session. Messages go to the
 // OzServer API's /admin/messages routes with the API's CONSOLE_TOKEN, which only this server holds:
 // putting text into every controller's vatSys has to be gated by something the browser cannot read.
-// (The live log tail still reads GET /api/v1/client-logs straight from the browser - that endpoint
-// is public in any case.)
+// The log feed is read here too (GET /api/v1/client-logs), so the same password stands in front of
+// it and the API's CLIENT_LOGS_TOKEN, when it has one, stays on this server.
 class ConsoleController extends Controller
 {
     // Every developer message is signed this way.
@@ -36,8 +36,9 @@ class ConsoleController extends Controller
         $expected = (string) config('services.ozserver_api.console_password');
         abort_if($expected === '', 404);
 
-        $given = (string) $request->input('password', '');
-        if (! hash_equals($expected, $given)) {
+        // Anything but a string (password[]=...) is simply a wrong password.
+        $given = $request->input('password');
+        if (! is_string($given) || ! hash_equals($expected, $given)) {
             return response()->json(['message' => 'Incorrect password.'], 401);
         }
 
@@ -109,19 +110,45 @@ class ConsoleController extends Controller
         return $this->forward(fn (PendingRequest $api) => $api->post("/api/v1/admin/messages/{$id}/withdraw"));
     }
 
+    // The forwarded plugin logs, for the feed. Needs the console unlocked, but not the messages
+    // token: the feed works without developer messages configured.
+    public function logs(Request $request): JsonResponse
+    {
+        abort_unless($request->session()->get('console_unlocked') === true, 401, 'The console is locked.');
+
+        // The same limits the API applies, so a bad value is answered here.
+        $data = $request->validate([
+            'since' => ['required', 'string', 'regex:/^\d{1,4}\s*(second|minute|hour|day)s?$/i'],
+            'limit' => ['required', 'integer', 'min:1', 'max:5000'],
+            // Left out: every server.
+            'server' => ['nullable', 'in:live,sb1,sb2'],
+        ]);
+
+        return $this->forward(fn (PendingRequest $api) => $api->get('/api/v1/client-logs', array_filter([
+            'since' => $data['since'],
+            'limit' => (int) $data['limit'],
+            'server' => $data['server'] ?? null,
+        ], 'filled')), (string) config('services.ozserver_api.client_logs_token'));
+    }
+
     private function ensureUnlocked(Request $request): void
     {
         abort_unless($request->session()->get('console_unlocked') === true, 401, 'The console is locked.');
         abort_if(blank(config('services.ozserver_api.console_token')), 503, 'Developer messages are not configured.');
     }
 
-    // Sends one call to the API and passes its answer back as it came: status and JSON body.
-    private function forward(callable $call): JsonResponse
+    // Sends one call to the API and passes its answer back as it came: status and JSON body. The
+    // token is the console's unless another is given; an empty one sends none.
+    private function forward(callable $call, ?string $token = null): JsonResponse
     {
         $api = Http::baseUrl(rtrim((string) config('services.ozserver_api.url'), '/'))
-            ->withToken((string) config('services.ozserver_api.console_token'))
             ->acceptJson()
             ->timeout(10);
+
+        $token ??= (string) config('services.ozserver_api.console_token');
+        if ($token !== '') {
+            $api = $api->withToken($token);
+        }
 
         try {
             $response = $call($api);
@@ -129,6 +156,13 @@ class ConsoleController extends Controller
             return response()->json(['message' => 'Could not reach the OzServer API.'], 502);
         }
 
-        return response()->json($response->json() ?? (object) [], $response->status() === 204 ? 200 : $response->status());
+        // The API refusing this server's token is a fault here, not the visitor's: passed on as a
+        // 401 it would read as a locked console, and the page would reload itself for ever.
+        if (in_array($response->status(), [401, 403], true)) {
+            return response()->json(['message' => 'The OzServer API refused the token this server holds - check the console configuration.'], 502);
+        }
+
+        // Decoded as objects, so an empty {} in the answer does not come back out as [].
+        return response()->json($response->object() ?? (object) [], $response->status() === 204 ? 200 : $response->status());
     }
 }

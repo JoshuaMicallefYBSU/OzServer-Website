@@ -2,7 +2,7 @@
 
 A central authority server for [vatSys](https://vatsys.net/) that keeps airspace ownership and tag data consistent across every controller on the network — built specifically for the **VATPAC Division**.
 
-> **Status: concept stage.** No server or client code exists yet. This README documents the current plan and will be updated as design decisions are made and implementation begins.
+> **Status: in testing.** The API, the vatSys plugin and this website are all running. This repository is the website only: [ozserver.org](https://ozserver.org).
 
 ## The problem
 
@@ -15,7 +15,7 @@ OzServer is a server that every controller's vatSys client connects to via a com
 - **Sector / airspace ownership** — exactly one controller can own a given sector at a time.
 - **Tag data authority** — the controller who has an aircraft's tag picked up is the only one who can update it; every other controller receives the same data, read-only.
 
-## How it works (planned)
+## How it works
 
 ### Sector ownership
 
@@ -34,19 +34,21 @@ OzServer is a server that every controller's vatSys client connects to via a com
 
 ## Architecture
 
-- **This repository** houses the OzServer backend — the authoritative server vatSys clients connect to — as well as the public website ([ozserver.org](https://ozserver.org)). It's currently a Laravel application.
-- **vatSys client plugin** — a separate repository, not yet started. It will run in the background on each controller's vatSys install and talk to the OzServer backend.
-- **Client–server protocol** — not yet decided. A polling-based API is the current leading option; a persistent connection is also under consideration. This section will be updated once that's settled.
+- **This repository** is the public website ([ozserver.org](https://ozserver.org)), a Laravel application with no domain data of its own: the homepage, the controller guide (`/how-to`), the live map (`/live-map`) and the developers' console (`/console`). Everything they show is read from the OzServer API.
+- **[OzServer-API](https://github.com/JoshuaMicallefYBSU/OzServer-API)** — the authoritative server (Fastify, TypeScript, PostgreSQL) at `api.ozserver.org`. The plugin and the live map both talk to it directly.
+- **[OzServer-Plugin](https://github.com/JoshuaMicallefYBSU/OzServer-Plugin)** — the vatSys plugin each controller runs. It polls the API and re-reads on its Server-Sent Events signals.
 
-## Open questions
+## Configuration
 
-These are unresolved and will shape the eventual implementation:
+Beyond Laravel's own settings, `.env` takes:
 
-- Exact client–server communication protocol (poll vs. push)
-- Conflict resolution if two controllers request the same sector at the same time
-- Controller identity/authentication source (likely VATSIM CID + role — to be confirmed)
-- Data persistence / history requirements
-- Licensing
+| Variable | Purpose |
+| --- | --- |
+| `OZSERVER_API_URL` | The API's origin. Defaults to `https://api.ozserver.org` |
+| `MAPBOX_ACCESS_TOKEN` | The live map's base map (a public Mapbox token) |
+| `OZSERVER_CONSOLE_PASSWORD` | Gates `/console`. Unset, there is no console |
+| `OZSERVER_CONSOLE_TOKEN` | The API's `CONSOLE_TOKEN`, for sending developer messages from the console |
+| `OZSERVER_CLIENT_LOGS_TOKEN` | The API's `CLIENT_LOGS_TOKEN`, for the console's log feed. Unset while the API has none |
 
 ## Local development
 
@@ -62,7 +64,10 @@ php artisan serve
 
 Then, in a separate terminal, run `npm run dev` to build front-end assets.
 
+`.env.example` is written for a server (`APP_ENV=production`, `APP_DEBUG=false`), so a copy of it put on one is safe as it stands. On your own machine, set `APP_ENV=local` and `APP_DEBUG=true` in `.env`.
+
 ## Links
 
 - Website: [ozserver.org](https://ozserver.org)
-- vatSys client plugin: coming soon
+- API: [OzServer-API](https://github.com/JoshuaMicallefYBSU/OzServer-API)
+- vatSys client plugin: [OzServer-Plugin](https://github.com/JoshuaMicallefYBSU/OzServer-Plugin)

@@ -143,18 +143,37 @@
     </head>
     <body>
         @php
-            // A screenshot from public/images/how-to/. One not yet added shows, outside production,
-            // as a slot saying what belongs there; in production it is simply left out.
-            $shot = function (string $file, string $caption) {
-                $relative = 'pubic/images/how-to/'.$file;
+            // Where the public folder sits in the site's URLs: '' when it is the web root, as on a
+            // development machine, and '/public' on a host that serves the project folder itself,
+            // as ozserver.org does. Worked out from the web server's document root rather than
+            // configured, so a screenshot shows wherever the site is put.
+            $publicUrl = '';
+            $webRoot = (string) request()->server('DOCUMENT_ROOT');
+            if ($webRoot !== '' && ($webRoot = realpath($webRoot)) !== false && ($public = realpath(public_path())) !== false) {
+                $webRoot = rtrim(str_replace('\\', '/', $webRoot), '/');
+                $public = str_replace('\\', '/', $public);
+                if (str_starts_with($public.'/', $webRoot.'/')) {
+                    $publicUrl = substr($public, strlen($webRoot));
+                }
+            }
+
+            // Only someone running the site on their own machine is shown what is still missing.
+            $host = request()->getHost();
+            $onDevMachine = ! app()->environment('production')
+                && (in_array($host, ['localhost', '127.0.0.1', '[::1]'], true) || str_ends_with($host, '.test') || str_ends_with($host, '.localhost'));
+
+            // A screenshot from public/images/how-to/. One not yet added shows, on a development
+            // machine, as a slot saying what belongs there; anywhere else it is simply left out.
+            $shot = function (string $file, string $caption) use ($publicUrl, $onDevMachine) {
+                $relative = 'images/how-to/'.$file;
                 $absolute = public_path($relative);
                 if (is_file($absolute)) {
-                    $src = '/'.$relative.'?v='.filemtime($absolute);
+                    $src = $publicUrl.'/'.$relative.'?v='.filemtime($absolute);
                     return '<figure class="oz-shot"><button type="button" data-zoom="'.e($src).'" aria-label="Enlarge screenshot">'
                         .'<img src="'.e($src).'" alt="'.e($caption).'" loading="lazy"></button>'
                         .'<figcaption>'.e($caption).'</figcaption></figure>';
                 }
-                if (app()->environment('production')) {
+                if (! $onDevMachine) {
                     return '';
                 }
                 return '<figure class="oz-shot pending"><div class="oz-shot-slot"><b>Screenshot to add</b>'
@@ -497,7 +516,7 @@
         </div>
 
         <footer>
-            <span>OzServer &mdash; &copy; Joshua Micallef | 2026-{{ date('Y') }}</span>
+            <span>OzServer &mdash; &copy; Joshua Micallef | 2026{{ date('Y') > 2026 ? '-'.date('Y') : '' }}</span>
             <span><a href="/">Home</a> &middot; <a href="/live-map" target="_blank" rel="noopener">Live map</a></span>
         </footer>
 

@@ -5,11 +5,12 @@ namespace App\Support;
 use InvalidArgumentException;
 
 /**
- * Decodes vatSys's coordinate encoding, which appears in two forms in the
- * same dataset: plain decimal degrees ("-34.945000+138.526389") and packed
- * sign+DMS with no separators ("-335318.000+1504241.654", i.e.
- * -33 deg 53' 18.000" / +150 deg 42' 41.654"). Which form a given value uses
- * is inferred from the digit count before the decimal point.
+ * Decodes vatSys's coordinate encoding (ISO 6709), which appears in more
+ * than one form in the same dataset: plain decimal degrees
+ * ("-34.945000+138.526389"), packed sign+DMS with no separators
+ * ("-335318.000+1504241.654", i.e. -33 deg 53' 18.000" / +150 deg 42' 41.654")
+ * and packed degrees with decimal minutes ("-3353.300+15042.694"). Which form
+ * a given value uses is inferred from the digit count before the decimal point.
  */
 class VatsysCoordinate
 {
@@ -28,8 +29,8 @@ class VatsysCoordinate
         }
 
         return [
-            'lat' => self::decodeComponent($matches[1]),
-            'lon' => self::decodeComponent($matches[2]),
+            'lat' => self::decodeComponent($matches[1], 2),
+            'lon' => self::decodeComponent($matches[2], 3),
         ];
     }
 
@@ -46,7 +47,10 @@ class VatsysCoordinate
         return array_values(array_map(self::decode(...), $tokens));
     }
 
-    private static function decodeComponent(string $signed): float
+    /**
+     * @param  int  $degreeDigits  how many digits the degrees take when packed: 2 for a latitude, 3 for a longitude
+     */
+    private static function decodeComponent(string $signed, int $degreeDigits): float
     {
         $sign = $signed[0] === '-' ? -1 : 1;
         $value = substr($signed, 1);
@@ -56,6 +60,16 @@ class VatsysCoordinate
         // 3 digits or fewer before the decimal point: already decimal degrees.
         if (strlen($intPart) <= 3) {
             return $sign * (float) $value;
+        }
+
+        // Packed DDMM (lat) / DDDMM (lon), two digits more than the degrees alone:
+        // the last 2 digits are minutes' whole part, the rest are degrees. Without
+        // this they were read as minutes and seconds with no degrees at all.
+        if (strlen($intPart) === $degreeDigits + 2) {
+            $minutes = (float) (substr($intPart, -2).'.'.$fracPart);
+            $degrees = (float) substr($intPart, 0, -2);
+
+            return $sign * ($degrees + $minutes / 60);
         }
 
         // Packed DDMMSS (lat) / DDDMMSS (lon): last 2 digits are seconds' whole

@@ -281,7 +281,7 @@
                     </article>
                     <article class="oz-panel oz-card">
                         <div class="oz-card-head"><i class="oz-swatch" style="--c:var(--good)"></i><h3>Reconnect recovery</h3></div>
-                        <p>A crash holds your sectors for 5 minutes. Reconnect in time and your sectors, VSCS lines and tags come back. A deliberate exit releases them straight away.</p>
+                        <p>A crash holds your sectors for 2 minutes. Reconnect in time and your sectors, VSCS lines and tags come back. A deliberate exit releases them straight away.</p>
                     </article>
                     <article class="oz-panel oz-card">
                         <div class="oz-card-head"><i class="oz-swatch" style="--c:var(--flow)"></i><h3>ATIS uploading</h3></div>
@@ -351,7 +351,7 @@
 
         <footer>
             <div class="oz-wrap">
-                <span>OzServer &mdash; &copy; Joshua Micallef | 2026-{{ date('Y') }}</span>
+                <span>OzServer &mdash; &copy; Joshua Micallef | 2026{{ date('Y') > 2026 ? '-'.date('Y') : '' }}</span>
                 <a href="/live-map" target="_blank" rel="noopener" class="oz-link">Live map</a>
             </div>
         </footer>
@@ -386,8 +386,9 @@
                         })
                         .catch(function (error) { show('stat-oz-controllers', '?'); show('stat-other-controllers', '?'); throw error; });
 
+                    // Counted by airport: the API can list one ATIS once for each position at it.
                     var atis = getJson('/api/v1/map/atis?server=live')
-                        .then(function (rows) { show('stat-atis', rows.length); })
+                        .then(function (rows) { show('stat-atis', new Set(rows.map(function (row) { return row.icao; })).size); })
                         .catch(function (error) { show('stat-atis', '?'); throw error; });
 
                     // Every pilot VATSIM reports inside our airspace, and how many of them a
