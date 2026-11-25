@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="OzServer">
+  <rect width="32" height="32" rx="7" fill="#060A13"/>
+  <path d="M7.45 21.56A10.2 10.2 0 0 1 21.56 7.45" fill="none" stroke="#EEF2FB" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M24.55 10.44A10.2 10.2 0 0 1 10.44 24.55" fill="none" stroke="#5B8CFF" stroke-width="2.8" stroke-linecap="round"/>
+  <path transform="translate(16 16) scale(0.46)" d="M0-4C0-4 12-12 4 0C4 0 12 12 0 4C0 4-12 12-4 0C-4 0-12-12 0-4Z" fill="#EEF2FB"/>
+</svg>

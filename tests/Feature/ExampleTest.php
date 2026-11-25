@@ -33,9 +33,47 @@ class ExampleTest extends TestCase
 
         $response = $this->get('/');
 
-        // BLA's first corner is the map's own top left; MEX1 would sit far off to the left of it.
-        $response->assertOk()->assertSee('M0 0 L', false)->assertDontSee('M-442', false);
+        // BLA's first corner in the chart's projection; MEX1 would sit far off to the left of it.
+        $response->assertOk()->assertSee('<path class="sector" d="M467.4 60L', false)->assertDontSee('M-33', false);
         Http::assertSentCount(1);
+    }
+
+    public function test_the_homepage_draws_the_coastline_and_names_no_controller_itself(): void
+    {
+        Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);
+
+        // Who holds what is read by the page from the live feed, never baked in by the server.
+        $this->get('/')->assertOk()
+            ->assertSee('<path class="land" d="M', false)
+            ->assertSee('<g id="held"></g>', false)
+            ->assertSee('/api/v1/map/sectors?server=live', false);
+    }
+
+    public function test_the_homepage_shows_the_plugin_windows_it_has_pictures_of(): void
+    {
+        Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);
+
+        $this->get('/')->assertOk()
+            ->assertSee('src="/images/how-to/sectors-window.png?v=', false)
+            ->assertSee('Answer a request');
+    }
+
+    public function test_every_page_links_the_site_icon_where_public_is_served(): void
+    {
+        Http::fake(['*/api/v1/map/sector-shapes' => Http::response([])]);
+
+        $pages = ['/', '/how-to', '/live-map'];
+
+        foreach ($pages as $page) {
+            $this->get($page)->assertOk()->assertSee('href="/favicon.svg?v=', false);
+        }
+
+        // As ozserver.org is hosted. Set once: server variables stay for the rest of the test.
+        $this->withServerVariables(['DOCUMENT_ROOT' => base_path()]);
+
+        foreach ($pages as $page) {
+            $this->get($page)->assertOk()->assertSee('href="/public/favicon.svg?v=', false);
+        }
     }
 
     public function test_the_how_to_guide_shows_the_screenshots_it_has(): void

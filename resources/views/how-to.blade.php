@@ -4,6 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>How to use OzServer | OzServer</title>
+        @include('partials.icons')
         <meta name="description" content="A controller's guide to the OzServer vatSys plugin: claiming and handing over sectors, requests, tags, disconnects and the Arrival List.">
         <style>
             /* Tokens, panels and badges as on the landing page and live map. */
@@ -147,15 +148,7 @@
             // development machine, and '/public' on a host that serves the project folder itself,
             // as ozserver.org does. Worked out from the web server's document root rather than
             // configured, so a screenshot shows wherever the site is put.
-            $publicUrl = '';
-            $webRoot = (string) request()->server('DOCUMENT_ROOT');
-            if ($webRoot !== '' && ($webRoot = realpath($webRoot)) !== false && ($public = realpath(public_path())) !== false) {
-                $webRoot = rtrim(str_replace('\\', '/', $webRoot), '/');
-                $public = str_replace('\\', '/', $public);
-                if (str_starts_with($public.'/', $webRoot.'/')) {
-                    $publicUrl = substr($public, strlen($webRoot));
-                }
-            }
+            $publicUrl = \App\Support\PublicUrl::prefix();
 
             // Only someone running the site on their own machine is shown what is still missing.
             $host = request()->getHost();
@@ -367,7 +360,7 @@
                         <li>the Sectors window opens, with the requested airspace shaded <i class="oz-swatch" style="background:var(--incoming)"></i>yellow on your scope.</li>
                     </ul>
                     <p>Answer it when you're ready. Nothing is put over your traffic.</p>
-                    {!! $shot('incoming-request.png', 'An incoming request under Release Sector Jurisdiction, with the requested airspace shaded yellow on the scope.') !!}
+                    {!! $shot('incoming-request.png', 'An incoming request selected under Release Sector Jurisdiction, with Accept and Reject below it.') !!}
                     <ol>
                         <li>Select the request under <span class="ui">Release Sector Jurisdiction</span>. To answer every request at once, select the heading itself.</li>
                         <li>Press <span class="ui">Accept</span> to hand the airspace over, or <span class="ui">Reject</span> to keep it.</li>
@@ -418,7 +411,7 @@
                     <p class="oz-kicker">Traffic</p>
                     <h2>Arrival List</h2>
                     <p>The Arrival List (for example <code>A:YSSY List</code>) is shared. Every controller sees the same flights in the same order: every departed flight inbound, with its landing time, type and global ops.</p>
-                    {!! $shot('arrival-list.png', 'The shared Arrival List for YMML, with the viewer and FMP badges above the list.') !!}
+                    {!! $shot('arrival-list.png', 'The shared Arrival List for YSSY, with the viewer and FMP badges above the list.') !!}
                     <ul>
                         <li><b>Reordering:</b> anyone can reorder the list, unless the airport's FMP (<code>SY_FMP</code> for YSSY) is online. Then only the FMP can.</li>
                         <li><b>Badges above the list</b> show how many controllers have it open (hover over it to see who) and whether the FMP is online.</li>

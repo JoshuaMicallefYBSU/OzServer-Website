@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Arr;
+use App\Support\PublicUrl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -10,111 +10,103 @@ use Illuminate\Support\Facades\Http;
 class HomeController extends Controller
 {
     /**
-     * A handful of oceanic CTR sectors (Norfolk, Solomon Sea, Fiji boundary areas)
-     * extend thousands of miles out over the Pacific - including them would shrink
-     * the continent to a speck in the middle of the homepage's decorative map, so
-     * they're left out of it entirely. Every other CTR sector, tiled together,
-     * already traces the coastline - no separate outline needed.
+     * A handful of oceanic CTR sectors (Norfolk, Solomon Sea, Fiji boundary areas) extend thousands
+     * of miles out over the Pacific, far past the edge of the homepage's chart, so they are left
+     * out of it.
      */
     private const EXCLUDED_SECTORS = ['HWE', 'AYPM', 'NFFJ'];
 
     /**
-     * These "activate" on the homepage map - each one, plus every sector it's
-     * responsible for while combined (a sector's own `responsible_sectors`,
-     * synced from vatSys's own ResponsibleSectors - the same coverage
-     * OzServer-API's /map/sectors folds into a staffed sector's "online" area),
-     * pulses together as one group.
+     * The chart's projection: longitude and latitude to the chart's own units, 20 to a degree of
+     * latitude, with longitude narrowed for 26 S so that Australia keeps its shape. The origin is
+     * out in the Indian Ocean, north-west of the continent.
      *
-     * Grouped into batches of at most MAX_ACTIVE_GROUP_SIZE so that no more than
-     * that many are ever pulsing at once - each batch gets its own slice of the
-     * animation cycle (see the animation-delay math in index()), and only one
-     * batch's slice is "live" at a time. Changing the number of batches here
-     * means updating the animation-duration and @keyframes percentages in
-     * landing.blade.php to match.
+     * The page projects the live sectors and aircraft itself with the same four numbers (passed
+     * to it as `projection`), and resources/data/coast-australia.txt is drawn with them too.
      */
-    private const ACTIVATED_SECTOR_GROUPS = [
-        ['BLA', 'GUN', 'SNO', 'INL', 'HYD'],
-        ['TRT', 'OLW', 'ISA', 'KEN', 'KPL'],
-        ['ARL', 'MNN', 'ASP', 'TBD', 'MUN'],
-        ['HUO'],
+    private const LON_ORIGIN = 84.0;
+
+    private const LAT_ORIGIN = -3.0;
+
+    private const UNITS_PER_DEGREE = 20.0;
+
+    private const STANDARD_PARALLEL = 26.0;
+
+    /**
+     * The plugin's windows shown on the homepage, in order. Each picture is the window itself,
+     * rendered by the plugin repository's tools/WindowShots; one that is missing is left out.
+     */
+    private const WINDOWS = [
+        [
+            'file' => 'sectors-window.png', 'tab' => 'Sectors window', 'caption' => 'Settings, Sectors',
+            'title' => 'See what you own and what is free',
+            'text' => 'Owned on the left, the changes you are planning in the middle, and everything available or held by someone else on the right. Nothing is sent until you press Apply Changes.',
+            'alt' => 'The OzServer Sector Configuration Window in vatSys, with Benalla owned and the list of available centre sectors.',
+        ],
+        [
+            'file' => 'request-prompt.png', 'tab' => 'Ask for a sector', 'caption' => 'After transmitting on a held sector',
+            'title' => 'Ask before you take',
+            'text' => 'Press Transmit on a line someone else is working and vatSys asks whether to send them a request. The sector stays theirs until they answer.',
+            'alt' => 'The Sector already owned prompt: Yarrowee is held by ML-MUN_CTR, with Accept and Reject buttons.',
+        ],
+        [
+            'file' => 'incoming-request.png', 'tab' => 'Answer a request', 'caption' => 'Release Sector Jurisdiction',
+            'title' => 'Hand over with one press',
+            'text' => 'A request for your airspace appears under Release Sector Jurisdiction, and the sector it covers is shaded yellow on your scope. Accept hands over the sector and the aircraft in it.',
+            'alt' => 'The Sectors window with a request from ML-ELW_CTR for Eildon Weir selected, and Accept and Reject buttons.',
+        ],
+        [
+            'file' => 'take-sectors-disconnected.png', 'tab' => 'Cover a dropped controller', 'caption' => 'A controller who dropped',
+            'title' => 'A crash does not close the airspace',
+            'text' => 'When a controller disconnects without releasing, their sectors are kept for two minutes. You are told whose they are and until when, and can take them now if traffic needs it.',
+            'alt' => 'The Sectors held for a disconnected controller prompt, with Take Sectors and Leave buttons.',
+        ],
+        [
+            'file' => 'arrival-list.png', 'tab' => 'Arrival list', 'caption' => 'A:YSSY List',
+            'title' => 'One sequence, shared',
+            'text' => 'Every controller with an airport\'s list open sees the same arrival order. Callsigns take the colour of the track on your own scope, and the flow position decides who may reorder.',
+            'alt' => 'The shared arrival list for Sydney with eight flights, three controllers connected and the flow position online.',
+        ],
+        [
+            'file' => 'update-window.png', 'tab' => 'Updates', 'caption' => 'OzServer update',
+            'title' => 'It keeps itself current',
+            'text' => 'New versions download in the background. Restart applies one, and your frequencies, sectors and aircraft tags are kept for when you reconnect.',
+            'alt' => 'The OzServer update window with its Restart button.',
+        ],
     ];
-
-    private const MAX_ACTIVE_GROUP_SIZE = 5;
-
-    private const LON_MIN = 110.0;
-
-    private const LON_MAX = 157.5;
-
-    private const LAT_MIN = -45.5;
-
-    private const LAT_MAX = -6.0;
 
     public function index()
     {
-        $allSectors = $this->sectorShapes()->keyBy('name');
-
         // Australian airspace only: the API serves other regions' sectors too (Mexico), which fall
-        // far outside this map's bounds and were being embedded in the page unseen.
-        $ctrSectors = $allSectors->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
-            && ($sector['region'] ?? 'australia') === 'australia'
-            && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true));
-
-        $primaries = $allSectors->only(Arr::flatten(self::ACTIVATED_SECTOR_GROUPS));
-
-        // Which primary (by its slot in ACTIVATED_SECTOR_GROUPS) each activated
-        // sector belongs to - the primaries themselves, plus every child sector
-        // they cover once combined. A child shares its parent's activated_index so
-        // the whole group pulses in sync rather than independently. Each batch
-        // reserves MAX_ACTIVE_GROUP_SIZE slots regardless of its own size, so a
-        // batch's pulses never spill into the next batch's slice of the cycle.
-        $activatedIndexByName = [];
-
-        foreach (self::ACTIVATED_SECTOR_GROUPS as $groupIndex => $group) {
-            foreach ($group as $positionInGroup => $name) {
-                $activatedIndexByName[$name] = $groupIndex * self::MAX_ACTIVE_GROUP_SIZE + $positionInGroup;
-            }
-        }
-
-        foreach ($primaries as $primary) {
-            $parentIndex = $activatedIndexByName[$primary['name']];
-
-            foreach ($primary['responsible_sectors'] ?? [] as $childName) {
-                $activatedIndexByName[$childName] ??= $parentIndex;
-            }
-        }
-
-        // Child sectors aren't necessarily CTR (e.g. BLA covers the MAE/MAV/SAS/PHA
-        // approach sectors while combined) - fetch whichever of them the CTR filter
-        // above didn't already pick up.
-        $missingChildren = array_diff(array_keys($activatedIndexByName), $ctrSectors->keys()->all());
-        $extraSectors = $allSectors->only($missingChildren);
-
-        $sectors = $ctrSectors->concat($extraSectors)
-            ->map(fn (array $sector) => $this->sectorToMapData($sector, $activatedIndexByName))
+        // far outside the chart and would be embedded in the page unseen.
+        $sectorPaths = $this->sectorShapes()
+            ->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
+                && ($sector['region'] ?? 'australia') === 'australia'
+                && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true))
+            ->map(fn (array $sector) => $this->sectorPath($sector))
             ->filter()
             ->values();
 
         return view('landing', [
-            'mapSectors' => $sectors,
-            // The page projects live aircraft itself, with the same formula as projectX/projectY,
-            // so their tags sit on the same map as the sector shapes drawn here.
-            'mapBounds' => [
-                'lonMin' => self::LON_MIN, 'lonMax' => self::LON_MAX,
-                'latMin' => self::LAT_MIN, 'latMax' => self::LAT_MAX,
+            'sectorPaths' => $sectorPaths,
+            'coastPath' => $this->coastPath(),
+            'projection' => [
+                'lon0' => self::LON_ORIGIN,
+                'lat0' => self::LAT_ORIGIN,
+                'k' => self::UNITS_PER_DEGREE,
+                'c' => cos(deg2rad(self::STANDARD_PARALLEL)),
             ],
+            'windows' => $this->windows(),
         ]);
     }
 
     /**
-     * Every sector's static geometry, from OzServer-API's public
-     * /map/sector-shapes (unlike /map/sectors, not staffed-only - the homepage's
-     * animation is a decorative loop unrelated to who is actually online).
+     * Every sector's static geometry, from OzServer-API's public /map/sector-shapes. Who holds
+     * which of them is read by the page itself, from the live feed.
      *
-     * Cached for a day on success, since the underlying dataset only changes
-     * when OzServer-API's own daily sync runs - the homepage has no need to hit
-     * the API on every single visit. Only a minute on failure/empty though, so
-     * a transient API outage self-heals quickly instead of leaving the
-     * homepage's map empty for the rest of the day.
+     * Cached for a day on success, since the underlying dataset only changes when OzServer-API's
+     * own daily sync runs. Only a minute on failure or an empty answer, so a transient API outage
+     * heals quickly instead of leaving the chart without its sectors for the rest of the day.
      */
     private function sectorShapes(): Collection
     {
@@ -140,48 +132,71 @@ class HomeController extends Controller
     }
 
     /**
-     * @param  array<string, mixed>  $sector
-     * @param  array<string, int>  $activatedIndexByName
+     * Australia's coastline as one SVG path, already in the chart's projection. Taken from the
+     * VATPAC vatSys dataset's COAST_ALL map and simplified; it changes only if that file is
+     * regenerated, so it is read once and kept.
      */
-    private function sectorToMapData(array $sector, array $activatedIndexByName): ?array
+    private function coastPath(): string
     {
-        $rings = collect($sector['boundary'] ?? [])
-            ->filter(fn (array $ring) => count($ring) > 1)
-            ->values();
+        return Cache::rememberForever('landing-coast-'.(@filemtime(resource_path('data/coast-australia.txt')) ?: 0), function () {
+            $path = @file_get_contents(resource_path('data/coast-australia.txt'));
 
-        if ($rings->isEmpty()) {
-            return null;
-        }
+            return $path === false ? '' : trim($path);
+        });
+    }
 
-        $activatedIndex = $activatedIndexByName[$sector['name']] ?? null;
+    /**
+     * @param  array<string, mixed>  $sector
+     */
+    private function sectorPath(array $sector): ?string
+    {
+        $rings = collect($sector['boundary'] ?? [])->filter(fn ($ring) => is_array($ring) && count($ring) > 2);
 
-        return [
-            'name' => $sector['name'],
-            'path' => $rings->map(fn (array $ring) => $this->ringToPath($ring))->implode(' '),
-            'activated' => $activatedIndex !== null,
-            'activated_index' => $activatedIndex,
-        ];
+        return $rings->isEmpty() ? null : $rings->map(fn (array $ring) => $this->ringToPath($ring))->implode('');
     }
 
     private function ringToPath(array $ring): string
     {
         return collect($ring)
             ->map(function (array $point, int $index) {
-                $x = round($this->projectX($point['lon']), 2);
-                $y = round($this->projectY($point['lat']), 2);
+                $x = round($this->projectX((float) $point['lon']), 1);
+                $y = round($this->projectY((float) $point['lat']), 1);
 
                 return ($index === 0 ? 'M' : 'L')."{$x} {$y}";
             })
-            ->implode(' ').' Z';
+            ->implode('').'Z';
     }
 
     private function projectX(float $lon): float
     {
-        return ($lon - self::LON_MIN) / (self::LON_MAX - self::LON_MIN) * 100;
+        return ($lon - self::LON_ORIGIN) * cos(deg2rad(self::STANDARD_PARALLEL)) * self::UNITS_PER_DEGREE;
     }
 
     private function projectY(float $lat): float
     {
-        return (self::LAT_MAX - $lat) / (self::LAT_MAX - self::LAT_MIN) * 100;
+        return (self::LAT_ORIGIN - $lat) * self::UNITS_PER_DEGREE;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function windows(): array
+    {
+        $windows = [];
+
+        foreach (self::WINDOWS as $window) {
+            $relative = 'images/how-to/'.$window['file'];
+            $src = PublicUrl::file($relative);
+            $size = $src === null ? false : @getimagesize(public_path($relative));
+
+            if ($src === null || $size === false) {
+                continue;
+            }
+
+            unset($window['file']);
+            $windows[] = $window + ['src' => $src, 'w' => $size[0], 'h' => $size[1]];
+        }
+
+        return $windows;
     }
 }
