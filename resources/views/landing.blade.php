@@ -77,12 +77,16 @@
             /* The chart keeps to the right of the pitch, and to the middle 1760px of a very wide
                screen. Its ocean and graticule run on past its own box to the hero's edges. */
             .chart-box { position: absolute; top: 0; bottom: 0; right: max(0px, calc((100% - 1760px) / 2)); width: min(58%, 1020px); }
-            .chart { display: block; width: 100%; height: 100%; overflow: visible; }
+            /* One chart per region, one over another; the one not shown fades out. Lines keep their
+               width on screen whatever a view's zoom. */
+            .chart { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; transition: opacity .7s ease; }
+            .chart.off { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .7s ease, visibility 0s linear .7s; }
             .chart .ocean { fill: var(--night); }
             .chart .graticule { stroke: rgba(150, 172, 225, .055); stroke-width: 1; fill: none; vector-effect: non-scaling-stroke; }
-            .chart .land { fill: var(--land); stroke: var(--coast); stroke-width: .9; stroke-linejoin: round; }
-            .chart .sector { fill: none; stroke: var(--grid); stroke-width: .8; }
-            .chart .held { stroke-width: .8; stroke-linejoin: round; }
+            .chart .land { fill: var(--land); stroke: var(--coast); stroke-width: .9; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+            .chart .shore { fill: none; stroke: var(--coast); stroke-width: .9; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+            .chart .sector { fill: none; stroke: var(--grid); stroke-width: .8; vector-effect: non-scaling-stroke; }
+            .chart .held { stroke-width: .8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
             .chart .held.plugin { fill: rgba(91, 140, 255, .2); stroke: rgba(132, 168, 255, .5); }
             .chart .held.external { fill: rgba(230, 190, 124, .13); stroke: rgba(230, 190, 124, .38); }
             .chart .ac .sym, .chart .ac .hist circle { fill: var(--ice); }
@@ -114,6 +118,18 @@
             .live.on { color: var(--ice); }
             .live.on i { background: #56D69A; animation: beat 2.4s ease-out infinite; }
             @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(86, 214, 154, .6); } 70% { box-shadow: 0 0 0 9px rgba(86, 214, 154, 0); } 100% { box-shadow: 0 0 0 0 rgba(86, 214, 154, 0); } }
+            /* The region picker. While cycling, the region shown fills a line under itself over its
+               30 seconds. */
+            .areas { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--night-rule); }
+            .areas button { appearance: none; position: relative; overflow: hidden; border: 0; border-radius: 6px; padding: 6px 11px; background: none; color: var(--ice-dim); font: 500 13px/1 var(--sans); cursor: pointer; transition: color .15s, background-color .15s; }
+            .areas button:hover { color: var(--ice); }
+            .areas button[aria-pressed="true"] { background: rgba(150, 172, 225, .13); color: var(--ice); }
+            .areas .auto { font-family: var(--mono); font-size: 12px; }
+            .areas .auto[aria-pressed="true"] { background: none; color: #56D69A; }
+            .areas button[data-region]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 2px; height: 2px; border-radius: 1px; background: var(--plugin); transform: scaleX(0); transform-origin: left; }
+            .areas.cycling button[data-region][aria-pressed="true"]::after { animation: dwell var(--dwell, 30s) linear forwards; }
+            .areas.waiting button[data-region]::after { animation-play-state: paused; }
+            @keyframes dwell { to { transform: scaleX(1); } }
             .fig { display: flex; align-items: baseline; gap: 9px; font-size: 14.5px; color: var(--ice-dim); }
             .fig b { min-width: 1ch; font: 500 21px/1 var(--sans); letter-spacing: -.02em; color: var(--ice); font-variant-numeric: tabular-nums; }
             .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-left: auto; font-size: 13.5px; color: var(--ice-dim); }
@@ -249,6 +265,7 @@
             @media (prefers-reduced-motion: reduce) {
                 html { scroll-behavior: auto; }
                 .live.on i { animation: none; }
+                .chart, .chart.off { transition: none; }
                 .btn, .frame, .frame.shown { transition: none; }
             }
         </style>
@@ -257,16 +274,19 @@
         <header class="hero" id="top">
             <div class="hero-top">
                 <div class="chart-box">
-                    <svg class="chart" id="chart" viewBox="431 30 950 840" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Chart of Australian airspace showing staffed sectors and aircraft">
+                    {{-- One chart per region (App\Support\ChartViews), stacked: the page shows one at a
+                         time, cycling through them. --}}
+                    @foreach ($views as $region => $view)
+                    <svg class="chart{{ $loop->first ? '' : ' off' }}" data-region="{{ $region }}" viewBox="{{ $view['viewBox'] }}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Chart of {{ $view['airspace'] }} showing staffed sectors and aircraft" @if (! $loop->first) aria-hidden="true" @endif>
                         <rect class="ocean" x="-4000" y="-3000" width="9400" height="6900"/>
-                        {{-- A line every ten degrees, well past the chart's own edges: on a wide screen
-                             the ocean runs on to the hero's. --}}
-                        <path class="graticule" d="@foreach (range(-10, 240, 10) as $lon)M{{ round(($lon - $projection['lon0']) * $projection['c'] * $projection['k'], 1) }} -3000V3900 @endforeach @foreach (range(40, -110, 10) as $lat)M-4000 {{ round(($projection['lat0'] - $lat) * $projection['k'], 1) }}H5400 @endforeach"/>
-                        <path class="land" d="{{ $coastPath }}"/>
-                        <path class="sector" d="{{ $sectorsPath }}"/>
-                        <g id="held"></g>
-                        <g id="traffic"></g>
+                        <path class="graticule" d="{{ $view['graticule'] }}"/>
+                        <path class="land" d="{{ $view['coast']['land'] }}"/>
+                        @if ($view['coast']['shore'] !== '')<path class="shore" d="{{ $view['coast']['shore'] }}"/>@endif
+                        <path class="sector" d="{{ $view['sectorsPath'] }}"/>
+                        <g class="held-layer"></g>
+                        <g class="traffic-layer"></g>
                     </svg>
+                    @endforeach
                 </div>
 
                 <div class="hero-inner wrap">
@@ -297,9 +317,16 @@
             <div class="rail">
                 <div class="rail-inner wrap">
                     <span class="live" id="live"><i></i><span id="clock">Connecting</span></span>
+                    {{-- The region shown. Cycles every 30 seconds until one is picked; Auto resumes. --}}
+                    <span class="areas" role="group" aria-label="Airspace shown">
+                        @foreach ($views as $region => $view)
+                        <button type="button" data-region="{{ $region }}" aria-pressed="{{ $loop->first ? 'true' : 'false' }}">{{ $view['label'] }}</button>
+                        @endforeach
+                        <button type="button" class="auto" id="auto" aria-pressed="true" title="Cycle through every region, 30 seconds each">Auto</button>
+                    </span>
                     <span class="fig"><b id="n-controllers">&ndash;</b> <span id="l-controllers">controllers online</span></span>
                     <span class="fig"><b id="n-sectors">&ndash;</b> sectors staffed</span>
-                    <span class="fig"><b id="n-aircraft">&ndash;</b> aircraft in Australian airspace</span>
+                    <span class="fig"><b id="n-aircraft">&ndash;</b> <span>aircraft in <span id="l-airspace">{{ \Illuminate\Support\Arr::first($views)['airspace'] }}</span></span></span>
                     <span class="legend">
                         <span><i class="k-plugin"></i>On OzServer</span>
                         <span><i class="k-external"></i>Without the plugin</span>
@@ -413,9 +440,12 @@
 
         <script>
             const API = @json(rtrim(config('services.ozserver_api.url'), '/'));
-            const P = @json($projection);
+            // The chart's views, one per region (App\Support\ChartViews): projection, framing and
+            // extent. Their outlines and coastlines are already in each region's <svg>.
+            const VIEWS = @json($chartViews);
+            const REGIONS = Object.keys(VIEWS);
+            const DWELL_MS = 30000;
 
-            const px = lon => (lon - P.lon0) * P.c * P.k, py = lat => (P.lat0 - lat) * P.k;
             const r1 = value => Math.round(value * 10) / 10;
             const el = id => document.getElementById(id);
 
@@ -432,14 +462,40 @@
             // on every request. Read every 15 seconds while the page is in view. Between reads each
             // aircraft is carried along its heading at its groundspeed, so the picture moves rather
             // than jumping.
+            //
+            // One region is shown at a time - Australia (with the Pacific), New Zealand (with its
+            // oceanic airspace), Mexico - each for 30 seconds in turn, until a visitor picks one.
+            // The figures under the chart are the region's own.
             (function () {
-                const svg = el('chart'), hero = document.querySelector('.hero');
-                const held = el('held'), traffic = el('traffic'), chips = el('chips'), tip = el('tip');
+                const hero = document.querySelector('.hero');
+                const charts = Object.fromEntries([...document.querySelectorAll('.chart[data-region]')].map(svg => [svg.dataset.region, svg]));
+                const chips = el('chips'), tip = el('tip'), areas = document.querySelector('.areas'), autoButton = el('auto');
                 const NS = 'http://www.w3.org/2000/svg';
                 const narrow = matchMedia('(max-width: 960px)');
                 const still = matchMedia('(prefers-reduced-motion: reduce)');
-                const aircraft = new Map();   // callsign -> { p, g, at }
+                const aircraft = new Map();   // callsign -> { p, g, at }, for the region shown
                 let anchors = [];             // one per chip: where on the chart it sits
+
+                // A region named in the address (?region=new-zealand) is shown and kept.
+                const asked = new URLSearchParams(location.search).get('region');
+                let region = REGIONS.includes(asked) ? asked : REGIONS[0];
+                let auto = !REGIONS.includes(asked);
+                let elapsed = 0;              // ms the region shown has been on screen, while cycling
+                const last = { sectors: null, controllers: null, traffic: null };
+
+                const svg = () => charts[region];
+                const layer = name => svg().querySelector('.' + name + '-layer');
+                function px(lon) {
+                    const P = VIEWS[region].projection;
+                    if (P.wrap && lon < 0) lon += 360;
+                    return (lon - P.lon0) * P.c * P.k;
+                }
+                const py = lat => (VIEWS[region].projection.lat0 - lat) * VIEWS[region].projection.k;
+                function onChart(lat, lon, margin) {
+                    const e = VIEWS[region].extent;
+                    if (VIEWS[region].projection.wrap && lon < 0) lon += 360;
+                    return lat >= e.lat[0] - margin && lat <= e.lat[1] + margin && lon >= e.lon[0] - margin && lon <= e.lon[1] + margin;
+                }
 
                 function node(name, attrs) {
                     const made = document.createElementNS(NS, name);
@@ -456,12 +512,12 @@
                     g.addEventListener('pointerenter', () => show(callsign));
                     g.addEventListener('pointerleave', hide);
                     g.addEventListener('click', event => { event.stopPropagation(); show(callsign); });
-                    traffic.appendChild(g);
+                    layer('traffic').appendChild(g);
                     return g;
                 }
 
                 function place() {
-                    const ctm = svg.getScreenCTM();
+                    const ctm = svg().getScreenCTM();
                     if (!ctm) return;
                     const scale = Math.max(1.15, 1 / ctm.a), now = Date.now();
                     for (const entry of aircraft.values()) {
@@ -516,7 +572,7 @@
                     const at = document.createElement('span'); at.textContent = 'at'; tip.append(at, ' ' + p.groundspeed + ' kt');
                     if (p.arrival) { const to = document.createElement('span'); to.textContent = 'to'; tip.append(document.createElement('br'), to, ' ' + p.arrival); }
 
-                    const ctm = svg.getScreenCTM(), box = hero.getBoundingClientRect();
+                    const ctm = svg().getScreenCTM(), box = hero.getBoundingClientRect();
                     const point = new DOMPoint(entry.x, entry.y).matrixTransform(ctm);
                     const left = Math.min(Math.max(8, point.x - box.left + 14), box.width - tip.offsetWidth - 8);
                     const top = Math.max(8, point.y - box.top - tip.offsetHeight - 12);
@@ -535,11 +591,14 @@
                         .map(ring => ring.map(point => [px(point.lon), py(point.lat)]));
                 }
 
-                // The staffed sectors, shaded by whether their controller is on OzServer, and one
-                // label per controller on the sector they are logged on as.
+                // A sector's region, from the API; one from before it said is Australian, as all were.
+                const inRegion = row => (row.region || 'australia') === region;
+
+                // The region's staffed sectors, shaded by whether their controller is on OzServer,
+                // and one label per controller on the sector they are logged on as.
                 function drawSectors(sectors) {
-                    const owned = sectors.filter(sector => sector.owner && sector.owner.callsign);
-                    held.replaceChildren(...owned.map(sector => node('path', {
+                    const owned = sectors.filter(sector => sector.owner && sector.owner.callsign && inRegion(sector));
+                    layer('held').replaceChildren(...owned.map(sector => node('path', {
                         class: 'held ' + (sector.external ? 'external' : 'plugin'),
                         d: rings(sector).map(ring => ring.map((point, i) => (i ? 'L' : 'M') + r1(point[0]) + ' ' + r1(point[1])).join('') + 'Z').join(''),
                     })));
@@ -576,7 +635,7 @@
                     const seen = new Set(), now = Date.now();
                     for (const p of pilots) {
                         // Airborne, and on the chart.
-                        if (!(p.groundspeed > 40) || !(p.lon > 96 && p.lon < 162 && p.lat < -4 && p.lat > -46.5)) continue;
+                        if (!(p.groundspeed > 40) || !onChart(p.lat, p.lon, 0.5)) continue;
                         seen.add(p.callsign);
                         const entry = aircraft.get(p.callsign) || { g: glyph(p.callsign) };
                         entry.p = p; entry.at = now;
@@ -593,41 +652,117 @@
                 const live = el('live');
                 function count(id, value) { el(id).textContent = value; }
 
+                // The figures and shading for the region shown, from the last reads.
+                function render() {
+                    if (last.sectors) count('n-sectors', drawSectors(last.sectors));
+                    if (last.controllers) {
+                        const n = last.controllers.filter(inRegion).length;
+                        count('n-controllers', n);
+                        count('l-controllers', n === 1 ? 'controller online' : 'controllers online');
+                    }
+                    if (last.traffic) {
+                        const own = last.traffic.regions && last.traffic.regions[region];
+                        count('n-aircraft', own ? own.in_firs : (region === 'australia' && !last.traffic.regions ? last.traffic.in_firs : '–'));
+                    }
+                    count('l-airspace', VIEWS[region].airspace);
+                    place();
+                }
+
+                function readPilots() {
+                    const asking = region;
+                    return getJson('/api/v1/map/pilots?region=' + encodeURIComponent(asking))
+                        .then(pilots => { if (asking === region) { drawTraffic(pilots); place(); } });
+                }
+
                 function refresh() {
                     // Nobody is looking: the next read waits until they are.
                     if (document.hidden) return;
 
                     const sectors = getJson('/api/v1/map/sectors?server=live')
-                        .then(rows => count('n-sectors', drawSectors(rows)))
-                        .catch(error => { count('n-sectors', '–'); throw error; });
+                        .then(rows => { last.sectors = rows; })
+                        .catch(error => { last.sectors = null; count('n-sectors', '–'); throw error; });
 
                     const controllers = getJson('/api/v1/map/controllers?server=live')
-                        .then(rows => { count('n-controllers', rows.length); count('l-controllers', rows.length === 1 ? 'controller online' : 'controllers online'); })
-                        .catch(error => { count('n-controllers', '–'); throw error; });
+                        .then(rows => { last.controllers = rows; })
+                        .catch(error => { last.controllers = null; count('n-controllers', '–'); throw error; });
 
-                    // Every pilot VATSIM reports inside Australian airspace.
+                    // Every pilot VATSIM reports inside each region's airspace.
                     const inFirs = getJson('/api/v1/map/traffic')
-                        .then(counts => count('n-aircraft', counts.in_firs))
-                        .catch(error => { count('n-aircraft', '–'); throw error; });
-
-                    const pilots = getJson('/api/v1/map/pilots').then(drawTraffic);
+                        .then(counts => { last.traffic = counts; })
+                        .catch(error => { last.traffic = null; count('n-aircraft', '–'); throw error; });
 
                     // Green only while every feed is answering.
-                    Promise.allSettled([sectors, controllers, inFirs, pilots]).then(results => {
+                    Promise.allSettled([sectors, controllers, inFirs, readPilots()]).then(results => {
                         live.classList.toggle('on', results.every(result => result.status === 'fulfilled'));
-                        place();
+                        render();
                     });
                 }
 
+                // Shows another region: its chart fades in, the last one's aircraft and labels go,
+                // and the figures are the new region's at once, from the last reads.
+                function showRegion(next) {
+                    if (next === region) return;
+                    hide();
+                    for (const entry of aircraft.values()) entry.g.remove();
+                    aircraft.clear();
+                    layer('held').replaceChildren();
+                    region = next;
+                    elapsed = 0;
+                    for (const [name, chart] of Object.entries(charts)) {
+                        chart.classList.toggle('off', name !== region);
+                        if (name === region) chart.removeAttribute('aria-hidden'); else chart.setAttribute('aria-hidden', 'true');
+                    }
+                    frame();
+                    markButtons();
+                    render();
+                    if (!document.hidden) readPilots().catch(() => {});
+                }
+
+                function markButtons() {
+                    for (const button of areas.querySelectorAll('[data-region]')) {
+                        const on = button.dataset.region === region;
+                        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    }
+                    autoButton.setAttribute('aria-pressed', auto ? 'true' : 'false');
+                    // Off and on again, so the dwell line starts over for the region now shown.
+                    areas.classList.remove('cycling');
+                    void areas.offsetWidth;
+                    areas.classList.toggle('cycling', auto && !still.matches);
+                }
+
+                // Picking a region keeps it; Auto goes back to cycling, from the region shown.
+                for (const button of areas.querySelectorAll('[data-region]')) {
+                    button.addEventListener('click', () => { auto = false; showRegion(button.dataset.region); markButtons(); });
+                }
+                autoButton.addEventListener('click', () => { auto = !auto; elapsed = 0; markButtons(); });
+                areas.style.setProperty('--dwell', DWELL_MS + 'ms');
+
+                // On to the next region once this one has had its time - not while an aircraft's
+                // details are open, or while nobody is looking.
+                setInterval(() => {
+                    const waiting = document.hidden || !!shown;
+                    areas.classList.toggle('waiting', waiting);
+                    if (!auto || waiting) return;
+                    elapsed += 500;
+                    if (elapsed >= DWELL_MS) showRegion(REGIONS[(REGIONS.indexOf(region) + 1) % REGIONS.length]);
+                }, 500);
+
                 function frame() {
-                    svg.setAttribute('viewBox', narrow.matches ? '455 90 850 760' : '431 30 950 840');
+                    const view = VIEWS[region];
+                    svg().setAttribute('viewBox', narrow.matches ? view.narrow : view.viewBox);
                     place();
                 }
                 narrow.addEventListener('change', frame);
                 addEventListener('resize', place);
                 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
                 if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+                if (region !== REGIONS[0]) {
+                    // Opened on another region: its chart is the one shown from the start.
+                    for (const [name, chart] of Object.entries(charts)) chart.classList.toggle('off', name !== region);
+                }
                 frame();
+                markButtons();
+                count('l-airspace', VIEWS[region].airspace);
                 refresh();
                 setInterval(refresh, 15000);
                 setInterval(() => { if (!document.hidden) place(); }, 2000);

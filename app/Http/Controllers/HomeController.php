@@ -2,36 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ChartViews;
 use App\Support\PublicUrl;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class HomeController extends Controller
 {
-    /**
-     * A handful of oceanic CTR sectors (Norfolk, Solomon Sea, Fiji boundary areas) extend thousands
-     * of miles out over the Pacific, far past the edge of the homepage's chart, so they are left
-     * out of it.
-     */
-    private const EXCLUDED_SECTORS = ['HWE', 'AYPM', 'NFFJ'];
-
-    /**
-     * The chart's projection: longitude and latitude to the chart's own units, 20 to a degree of
-     * latitude, with longitude narrowed for 26 S so that Australia keeps its shape. The origin is
-     * out in the Indian Ocean, north-west of the continent.
-     *
-     * The page projects the live sectors and aircraft itself with the same four numbers (passed
-     * to it as `projection`), and resources/data/coast-australia.txt is drawn with them too.
-     */
-    private const LON_ORIGIN = 84.0;
-
-    private const LAT_ORIGIN = -3.0;
-
-    private const UNITS_PER_DEGREE = 20.0;
-
-    private const STANDARD_PARALLEL = 26.0;
-
     /**
      * The plugin's windows shown on the homepage, in order. Each picture is the window itself,
      * rendered by the plugin repository's tools/WindowShots; one that is missing is left out.
@@ -77,29 +56,72 @@ class HomeController extends Controller
 
     public function index()
     {
-        // Australian airspace only: the API serves other regions' sectors too (Mexico), which fall
-        // far outside the chart and would be embedded in the page unseen.
-        // One path for all of them: they are drawn alike, and one element costs the browser less
-        // than seventy.
-        $sectorsPath = $this->sectorShapes()
-            ->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
-                && ($sector['region'] ?? 'australia') === 'australia'
-                && ! in_array($sector['name'], self::EXCLUDED_SECTORS, true))
-            ->map(fn (array $sector) => $this->sectorPath($sector))
-            ->filter()
-            ->implode('');
+        // One chart view per region (App\Support\ChartViews), each with the outlines of its own
+        // CTR sectors in one path - drawn alike, and one element costs the browser less than
+        // seventy - and its coastline.
+        $shapes = $this->sectorShapes();
+        $views = [];
+        foreach (ChartViews::ALL as $region => $view) {
+            $views[$region] = [
+                'label' => $view['label'],
+                'airspace' => $view['airspace'],
+                'projection' => ChartViews::projection($view),
+                'viewBox' => implode(' ', $view['viewBox']),
+                'narrow' => implode(' ', $view['narrow']),
+                'extent' => $view['extent'],
+                'sectorsPath' => $shapes
+                    ->filter(fn (array $sector) => ($sector['type'] ?? null) === 'CTR'
+                        && ($sector['region'] ?? 'australia') === $region
+                        && ! in_array($sector['name'], $view['exclude'], true)
+                        && (! $view['clip'] || $this->withinView($view, $sector)))
+                    ->map(fn (array $sector) => $this->sectorPath($view, $sector))
+                    ->filter()
+                    ->implode(''),
+                'coast' => $this->coast($view['coast']),
+                'graticule' => $this->graticule($view),
+            ];
+        }
 
         return view('landing', [
-            'sectorsPath' => $sectorsPath,
-            'coastPath' => $this->coastPath(),
-            'projection' => [
-                'lon0' => self::LON_ORIGIN,
-                'lat0' => self::LAT_ORIGIN,
-                'k' => self::UNITS_PER_DEGREE,
-                'c' => cos(deg2rad(self::STANDARD_PARALLEL)),
-            ],
+            'views' => $views,
+            // What the page's script needs of each view; the paths are in its markup already.
+            'chartViews' => collect($views)->map(fn (array $view) => Arr::only($view, ['label', 'airspace', 'projection', 'viewBox', 'narrow', 'extent'])),
             'windows' => $this->windows(),
         ]);
+    }
+
+    /**
+     * Whether every point of a sector's outline is in (or within a couple of degrees of) the view.
+     *
+     * @param  array<string, mixed>  $sector
+     */
+    private function withinView(array $view, array $sector): bool
+    {
+        $points = collect($sector['boundary'] ?? [])->flatten(1)->filter(fn ($point) => is_array($point));
+
+        return $points->isNotEmpty()
+            && $points->every(fn (array $point) => ChartViews::inExtent($view, (float) $point['lat'], (float) $point['lon'], 2.0));
+    }
+
+    /**
+     * A line every ten degrees, well past the view's own edges: on a wide screen the ocean runs on
+     * to the hero's.
+     */
+    private function graticule(array $view): string
+    {
+        $path = '';
+        $from = (int) (floor(($view['lon0'] - 100) / 10) * 10);
+        foreach (range($from, $from + 260, 10) as $lon) {
+            $x = round(($lon - $view['lon0']) * cos(deg2rad($view['parallel'])) * 20, 1);
+            $path .= "M{$x} -3000V3900";
+        }
+        $lat0 = (int) (floor($view['lat0'] / 10) * 10);
+        foreach (range($lat0 + 50, $lat0 - 110, -10) as $lat) {
+            $y = round(ChartViews::projectY($view, $lat), 1);
+            $path .= "M-4000 {$y}H5400";
+        }
+
+        return $path;
     }
 
     /**
@@ -134,49 +156,52 @@ class HomeController extends Controller
     }
 
     /**
-     * Australia's coastline as one SVG path, already in the chart's projection. Taken from the
-     * VATPAC vatSys dataset's COAST_ALL map and simplified; it changes only if that file is
-     * regenerated, so it is read once and kept.
+     * A view's coastline, already in its projection (see App\Support\ChartViews): `land` filled,
+     * `shore` only stroked. Australia's .txt is one land path, taken from the VATPAC vatSys
+     * dataset's COAST_ALL map and simplified; the .json ones are built by `php artisan
+     * landing:coast`. They change only if regenerated, so each is read once and kept.
+     *
+     * @return array{land: string, shore: string}
      */
-    private function coastPath(): string
+    private function coast(string $file): array
     {
-        return Cache::rememberForever('landing-coast-'.(@filemtime(resource_path('data/coast-australia.txt')) ?: 0), function () {
-            $path = @file_get_contents(resource_path('data/coast-australia.txt'));
+        $path = resource_path('data/'.$file);
 
-            return $path === false ? '' : trim($path);
+        return Cache::rememberForever('landing-coast-'.$file.'-'.(@filemtime($path) ?: 0), function () use ($path, $file) {
+            $contents = @file_get_contents($path);
+            if ($contents === false) {
+                return ['land' => '', 'shore' => ''];
+            }
+            if (str_ends_with($file, '.json')) {
+                $decoded = json_decode($contents, true) ?: [];
+
+                return ['land' => (string) ($decoded['land'] ?? ''), 'shore' => (string) ($decoded['shore'] ?? '')];
+            }
+
+            return ['land' => trim($contents), 'shore' => ''];
         });
     }
 
     /**
      * @param  array<string, mixed>  $sector
      */
-    private function sectorPath(array $sector): ?string
+    private function sectorPath(array $view, array $sector): ?string
     {
         $rings = collect($sector['boundary'] ?? [])->filter(fn ($ring) => is_array($ring) && count($ring) > 2);
 
-        return $rings->isEmpty() ? null : $rings->map(fn (array $ring) => $this->ringToPath($ring))->implode('');
+        return $rings->isEmpty() ? null : $rings->map(fn (array $ring) => $this->ringToPath($view, $ring))->implode('');
     }
 
-    private function ringToPath(array $ring): string
+    private function ringToPath(array $view, array $ring): string
     {
         return collect($ring)
-            ->map(function (array $point, int $index) {
-                $x = round($this->projectX((float) $point['lon']), 1);
-                $y = round($this->projectY((float) $point['lat']), 1);
+            ->map(function (array $point, int $index) use ($view) {
+                $x = round(ChartViews::projectX($view, (float) $point['lon']), 1);
+                $y = round(ChartViews::projectY($view, (float) $point['lat']), 1);
 
                 return ($index === 0 ? 'M' : 'L')."{$x} {$y}";
             })
             ->implode('').'Z';
-    }
-
-    private function projectX(float $lon): float
-    {
-        return ($lon - self::LON_ORIGIN) * cos(deg2rad(self::STANDARD_PARALLEL)) * self::UNITS_PER_DEGREE;
-    }
-
-    private function projectY(float $lat): float
-    {
-        return (self::LAT_ORIGIN - $lat) * self::UNITS_PER_DEGREE;
     }
 
     /**
