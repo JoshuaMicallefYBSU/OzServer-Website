@@ -1259,7 +1259,7 @@
                 regionSelect.value = state.region;
                 if (regionSelect.value !== state.region) state.region = '';
                 regionSelect.addEventListener('change', e => setRegion(e.target.value));
-                setInterval(refreshNames, 60000);
+                setInterval(refreshNames, 15000);
                 setInterval(refreshRelease, 5 * 60000);
                 backfill();
                 refreshState();

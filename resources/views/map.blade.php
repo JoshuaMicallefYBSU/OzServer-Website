@@ -1256,7 +1256,7 @@
                     : (sector ? `holder of ${sectorChip(sector)}` : `<span style="color:var(--faint)">unknown</span>`);
                 return `<div class="oz-block"><h4>Kept current by</h4>${who}
                     <span style="color:${stale ? "var(--warn)" : "var(--muted)"}">· ${f.last_seen_at ? ago(f.last_seen_at) + " ago" : "never"}</span>
-                    ${stale ? `<div class="oz-note-box warn">Not updated for ${ago(f.last_seen_at)} - no connected controller who can see this aircraft is reporting it.</div>` : ""}</div>`;
+                    ${stale ? `<div class="oz-note-box warn">Not updated for ${ago(f.last_seen_at)} - no connected controller who can see this aircraft is reporting it.${f.datafeed_position_at ? ` Position from the VATSIM datafeed, updated ${ago(f.datafeed_position_at)} ago.` : ''}</div>` : ""}</div>`;
             }
 
             function setAllRoutes(on) {
@@ -1510,7 +1510,10 @@
                     ['Times', [f.atd ? 'ATD ' + hhmm(f.atd) : f.etd ? 'ETD ' + hhmm(f.etd) : null, f.eet_minutes ? `EET ${f.eet_minutes}m` : null].filter(Boolean).join(' · ')],
                     ['Rules', f.flight_rules],
                     ['State', f.state ? f.state.replace('STATE_', '').toLowerCase() : null],
-                    ['Last update', f.last_seen_at ? `${ago(f.last_seen_at)} ago` : null],
+                    ['Plugin update', f.last_seen_at ? `${ago(f.last_seen_at)} ago` : null],
+                    // Set by the API when no plugin has updated this record for 15 s: the position
+                    // (and level, speed, heading) is then VATSIM's datafeed's, pulled every 15 s.
+                    ['Position', f.datafeed_position_at ? `VATSIM datafeed, ${ago(f.datafeed_position_at)} ago` : null],
                 ].filter(([, v]) => v);
                 return `
                     <div class="oz-detail-head">
