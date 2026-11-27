@@ -142,6 +142,8 @@
             .oz-table td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: top; }
             .oz-table td:first-child { font-family: var(--mono); }
             .oz-table tr { cursor: pointer; }
+            .oz-table.plain tr { cursor: default; }
+            .oz-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 4px; }
             .oz-table tr:hover td { background: rgba(255, 255, 255, 0.03); }
             .oz-also { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 11px; }
 
@@ -701,7 +703,7 @@
                 map.addLayer({
                     id: 'route-points', type: 'circle', source: 'route-points',
                     paint: { 'circle-radius': 3, 'circle-color': '#060A13', 'circle-stroke-width': 1.5,
-                        'circle-stroke-color': ['case', ['get', 'boundary'], BOUNDARY_COLOUR, ['get', 'colour']] },
+                        'circle-stroke-color': ['case', ['get', 'hold'], '#fb923c', ['get', 'boundary'], BOUNDARY_COLOUR, ['get', 'colour']] },
                 });
                 map.addLayer({
                     id: 'route-point-labels', type: 'symbol', source: 'route-points',
@@ -1227,7 +1229,7 @@
                             }
                             const boundary = !!crossing;
                             points.push({ type: 'Feature',
-                                properties: { name: boundary ? crossing.sector : p.n, colour, boundary, passed: i < next },
+                                properties: { name: boundary ? crossing.sector : [p.n, ...pointTimes(p)].join('\n'), colour, boundary, passed: i < next, hold: !!p.hold },
                                 geometry: { type: 'Point', coordinates: [p.lon, p.lat] } });
                         });
                     }
@@ -1497,6 +1499,21 @@
                 badge.textContent = state.unseenFeed > 99 ? '99+' : state.unseenFeed;
             }
 
+            // The times vatSys keeps on a route point (plugin FdrSync.FillRoute): when it was
+            // passed, an estimate set for it, and a hold there (seconds).
+            function holdText(seconds) { return `HOLD ${Math.round(seconds / 60)} min`; }
+            function pointTimes(p) {
+                return [p.ato ? 'ATO ' + hhmm(p.ato) : null, p.hold ? holdText(p.hold) : null, !p.ato && p.est ? 'EST ' + hhmm(p.est) : null].filter(Boolean);
+            }
+            function routeTimesBlock(f) {
+                const rows = Array.isArray(f.route_times) ? f.route_times : [];
+                if (!rows.length) return '';
+                return `<div class="oz-block"><h4>Route times</h4><table class="oz-table plain">
+                    <tr><th>Point</th><th>Passed</th><th>Estimate</th><th>Hold</th></tr>
+                    ${rows.map((p) => `<tr><td>${esc(p.n)}</td><td>${p.ato ? esc(hhmm(p.ato)) : ''}</td><td>${p.est ? esc(hhmm(p.est)) : ''}</td><td>${p.hold ? esc(holdText(p.hold)) : ''}</td></tr>`).join('')}
+                    </table></div>`;
+            }
+
             function flightDetail(f) {
                 const squawk = f.assigned_ssr_code != null ? String(f.assigned_ssr_code).padStart(4, '0') : null;
                 const cfl = f.cfl_lower && f.cfl_upper && f.cfl_lower !== f.cfl_upper ? `${f.cfl_lower}-${f.cfl_upper}` : (f.cfl_lower ?? f.cfl_upper);
@@ -1505,9 +1522,17 @@
                     ['Route', `${f.dep_airport ?? '????'} → ${f.des_airport ?? '????'}`],
                     ['SID/STAR · Rwy', [f.sid_star_string, f.runway_string ?? f.departure_runway].filter(Boolean).join(' ')],
                     ['Level', [cfl ? 'CFL ' + cfl : null, f.rfl ? 'RFL ' + f.rfl : null].filter(Boolean).join(' · ')],
-                    ['Now', `${f.altitude ?? '?'} ft · ${f.ground_speed ?? '?'} kt${f.heading != null ? ' · ' + f.heading + '°' : ''}`],
+                    ['Now', `${f.altitude ?? '?'} ft · ${f.ground_speed ?? '?'} kt${f.heading != null ? ' · ' + f.heading + '°' : ''}${f.vertical_rate ? ` · ${f.vertical_rate > 0 ? '+' : ''}${f.vertical_rate} fpm` : ''}`],
+                    ['TAS', f.tas ? `${f.tas} kt` : null],
+                    ['Next waypoint', f.next_waypoint],
+                    ['Equipment', [f.aircraft_equip, f.aircraft_surv_equip].filter(Boolean).join(' / ')],
+                    ['Aircraft', f.aircraft_count > 1 ? `${f.aircraft_count} in formation` : null],
+                    ['Voice', f.text_only ? 'Text only' : f.receive_only ? 'Receive only' : null],
                     ['Squawk', squawk],
-                    ['Times', [f.atd ? 'ATD ' + hhmm(f.atd) : f.etd ? 'ETD ' + hhmm(f.etd) : null, f.eet_minutes ? `EET ${f.eet_minutes}m` : null].filter(Boolean).join(' · ')],
+                    ['Times', [f.atd ? 'ATD ' + hhmm(f.atd) : f.etd ? 'ETD ' + hhmm(f.etd) : null, f.eet_minutes ? `EET ${f.eet_minutes}m` : null, f.eta ? 'ETA ' + hhmm(f.eta) : null].filter(Boolean).join(' · ')],
+                    ['Scratchpad', f.label_op_data],
+                    ['Global ops', f.global_op_data],
+                    ['Label', [f.c_prompt ? 'C' : null, f.otd_left ? `Left ${f.otd_left} NM` : null, f.otd_right ? `Right ${f.otd_right} NM` : null].filter(Boolean).join(' · ')],
                     ['Rules', f.flight_rules],
                     ['State', f.state ? f.state.replace('STATE_', '').toLowerCase() : null],
                     ['Plugin update', f.last_seen_at ? `${ago(f.last_seen_at)} ago` : null],
@@ -1526,8 +1551,10 @@
                         : controllerChip(f.controlling_callsign)}
                         ${f.current_sector ? ' in ' + sectorChip(f.current_sector) : ''}
                         ${isHandover(f.state) ? '<div class="oz-note-box warn">Handoff in progress - being offered to the next controller.</div>' : ''}</div>
+                    ${f.dropped ? '<div class="oz-note-box warn">Dropped by its controller - not picked up automatically.</div>' : ''}
                     ${responsibleBlock(f)}
                     <dl class="oz-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+                    ${routeTimesBlock(f)}
                     ${f.route ? `<div class="oz-block"><h4>Filed route</h4><div class="oz-route">${esc(f.route)}</div></div>` : ''}
                     ${f.remarks ? `<div class="oz-block"><h4>Remarks</h4><div class="oz-route">${esc(f.remarks)}</div></div>` : ''}`;
             }
