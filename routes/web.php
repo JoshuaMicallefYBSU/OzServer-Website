@@ -4,14 +4,15 @@ use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\HomeController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', [HomeController::class, 'index']);
+// Each public page counts its visits (App\Http\Middleware\RecordPageVisit), shown in the /console.
+Route::get('/', [HomeController::class, 'index'])->middleware('visit:home');
 
 Route::get('/live-map', function () {
     return view('map');
-});
+})->middleware('visit:map');
 
 // The controller guide. The plugin's "OzServer How-To" menu button opens it in vatSys's browser.
-Route::view('/how-to', 'how-to');
+Route::view('/how-to', 'how-to')->middleware('visit:how-to');
 
 // The map used to live at /ops, then /map; old links and bookmarks still land on it, query string
 // included.
@@ -39,3 +40,5 @@ Route::prefix('/console/api')->middleware('throttle:60,1,console-api')->group(fu
 // The log feed is read every 2 seconds by each open console (30 a minute), so it is counted apart
 // from the routes above: room for three consoles behind one address, and their history loads.
 Route::get('/console/api/logs', [ConsoleController::class, 'logs'])->middleware('throttle:120,1,console-logs');
+// Visits to the public pages. Needs the console unlocked, not the messages token.
+Route::get('/console/api/visits', [ConsoleController::class, 'visits'])->middleware('throttle:30,1,console-visits');

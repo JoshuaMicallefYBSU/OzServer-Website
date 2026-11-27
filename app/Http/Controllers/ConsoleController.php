@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PageVisits;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\JsonResponse;
@@ -129,6 +130,14 @@ class ConsoleController extends Controller
             'limit' => (int) $data['limit'],
             'server' => $data['server'] ?? null,
         ], 'filled')), (string) config('services.ozserver_api.client_logs_token'));
+    }
+
+    // How often the public pages are looked at (App\Support\PageVisits).
+    public function visits(Request $request): JsonResponse
+    {
+        abort_unless($request->session()->get('console_unlocked') === true, 401, 'The console is locked.');
+
+        return response()->json(PageVisits::summary());
     }
 
     private function ensureUnlocked(Request $request): void

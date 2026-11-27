@@ -484,6 +484,7 @@
                 lastPlugin: new Map(), // callsign -> { at, server, cid } from the logs
                 latest: null,          // the plugin release controllers should be on (/plugin/release)
                 streams: null,         // open Server-Sent Events streams on the API (/events/status)
+                visits: null,          // /console/api/visits
                 names: new Map(),      // CID -> name their VATSIM connection shows (live datafeed)
             };
 
@@ -864,7 +865,37 @@
                     ${versions.size ? [...versions.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `<div class="oz-toprow"><b style="color:${outdated(v) ? 'var(--warn)' : 'var(--muted)'}">${n}×</b><span>${esc(v)}${outdated(v) ? ' <span class="oz-badge warn">behind</span>' : ''}</span></div>`).join('') : '<div class="oz-empty">Nobody connected.</div>'}
                     <div class="oz-section-title">Most common errors</div>
                     ${topRows.length ? topRows.map(([m, n]) => `<div class="oz-toprow"><b>${n}×</b><span>${esc(m)}</span></div>`).join('') : '<div class="oz-empty">No errors in the loaded history.</div>'}
+                    ${visitsSection()}
                     <div class="oz-hint" style="margin-top:12px">Click a controller on the left, or a callsign in the feed, to focus on them.</div>`;
+            }
+
+            // Visits to the public pages (/console/api/visits): one per page per browser per hour.
+            // Every region and server: the website is one site.
+            function visitsSection() {
+                const v = state.visits;
+                if (!v) return '';
+                const spans = [['hour', 'Hour'], ['day', '24 h'], ['week', '7 days'], ['month', '30 days']];
+                const cell = n => `<td style="text-align:right;font-family:var(--mono);padding:3px 0 3px 10px">${n || 0}</td>`;
+                const rows = Object.entries(v.pages).map(([page, label]) =>
+                    `<tr><td style="padding:3px 0">${esc(label)}</td>${spans.map(([k]) => cell(v.totals[k]?.[page])).join('')}</tr>`).join('');
+                const totals = spans.map(([k]) => cell(Object.values(v.totals[k] || {}).reduce((a, b) => a + b, 0))).join('');
+                const perDay = v.days.map(d => ({ date: d.date, n: Object.values(d.counts).reduce((a, b) => a + b, 0) }));
+                const peak = Math.max(1, ...perDay.map(d => d.n));
+                const bars = perDay.map(d => `<i title="${esc(d.date)}: ${d.n}" style="flex:1;align-self:flex-end;height:${Math.max(2, Math.round(d.n / peak * 34))}px;background:var(--accent);opacity:.75;border-radius:2px"></i>`).join('');
+                return `
+                    <div class="oz-section-title">Website visits</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                        <tr style="color:var(--muted)"><td></td>${spans.map(([, l]) => `<td style="text-align:right;padding-left:10px">${l}</td>`).join('')}</tr>
+                        ${rows}
+                        <tr style="border-top:1px solid var(--line)"><td style="padding:3px 0">All</td>${totals}</tr>
+                    </table>
+                    <div style="display:flex;gap:3px;height:36px;margin-top:8px" title="Visits per day (UTC), last 14 days">${bars}</div>
+                    <div class="oz-hint">Last 14 days, per day (UTC). A visit is a browser opening a page, counted again after an hour.</div>`;
+            }
+            async function refreshVisits() {
+                const r = await consoleFetch('/console/api/visits');
+                if (r.status === 401) return window.location.reload();
+                if (r.ok && r.body?.totals) { state.visits = r.body; if (!state.focus && !detailsBusy()) renderDetails(); }
             }
 
             function renderControllerDetails(callsign) {
@@ -1221,6 +1252,8 @@
                 refreshRelease();
                 refreshNames();
                 refreshWhere();
+                refreshVisits();
+                setInterval(refreshVisits, 60000);
                 setInterval(refreshWhere, 10 * 60000);
                 const regionSelect = document.getElementById('region');
                 regionSelect.value = state.region;
