@@ -112,6 +112,7 @@
             .oz-tabs .count { display: inline-block; min-width: 16px; margin-left: 5px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: #070B14; font-size: 10.5px; font-weight: 700; }
             .oz-ctl .main { flex: 1; min-width: 0; }
             .oz-ctl .title { font-family: var(--mono); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .oz-ctl .title .name { font-family: var(--sans); font-weight: 400; color: var(--muted); margin-left: 6px; }
             .oz-ctl .sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .oz-ctl .right { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
             .oz-ctl .right .errs { color: var(--bad); }
@@ -681,7 +682,7 @@
                     const key = `${server}|${callsign}`;
                     rows.set(key, { callsign, server, ...(rows.get(key) || {}), ...extra });
                 };
-                for (const c of state.clients) add(c.callsign, c.server, { cid: c.cid, lastCall: c.last_seen_at, connected: true });
+                for (const c of state.clients) add(c.callsign, c.server, { cid: c.cid, lastCall: c.last_seen_at, connected: true, realName: c.real_name || null });
                 for (const ops of opsServers()) for (const c of ops.controllers) add(c.callsign, ops.server, { cid: c.cid, holding: true, lastCall: c.last_seen_at });
                 const recent = Date.now() - 5 * 60000;
                 for (const [callsign, info] of state.lastPlugin) {
@@ -722,10 +723,10 @@
                     b.innerHTML = `
                         <i class="oz-dot ext"></i>
                         <div class="main">
-                            <div class="title">${esc(r.callsign)}</div>
+                            <div class="title">${esc(r.callsign)}${r.realName ? `<span class="name">${esc(r.realName)}</span>` : ''}</div>
                             <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> <span class="oz-badge ext">no plugin</span> ${esc(r.frequencies[0] || '')}${n ? ` · ${n} sector${n === 1 ? '' : 's'}` : ''}</div>
                         </div>
-                        <div class="right">${esc(r.realName || '')}</div>`;
+                        <div class="right"></div>`;
                     return b;
                 }
                 const last = r.lastCall || r.lastLog;
@@ -738,7 +739,7 @@
                 b.innerHTML = `
                     <i class="oz-dot ${dot}"></i>
                     <div class="main">
-                        <div class="title">${esc(r.callsign)}</div>
+                        <div class="title">${esc(r.callsign)}${r.realName ? `<span class="name">${esc(r.realName)}</span>` : ''}</div>
                         <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> ${versionText} · ${held.length ? esc(held.length + ' sector' + (held.length === 1 ? '' : 's')) : 'no sectors'}</div>
                     </div>
                     <div class="right">${errs ? `<div class="errs">${errs} err</div>` : ''}<div>${esc(ago(last))}</div></div>`;
@@ -831,6 +832,7 @@
                     <dl class="oz-kv">
                         <dt>Server</dt><dd><span class="oz-badge srv-${esc(server)}">${esc(server)}</span></dd>
                         <dt>CID</dt><dd>${esc(row?.cid ?? state.lastPlugin.get(callsign)?.cid ?? '?')}</dd>
+                        <dt>Name</dt><dd>${row?.realName ? esc(row.realName) : (server === 'live' ? 'not on the VATSIM datafeed' : 'unknown - SweatBox')}</dd>
                         <dt>Plugin</dt><dd>${esc(state.versions.get(callsign) || 'unknown')}${outdated(state.versions.get(callsign)) ? ` <span class="oz-badge warn">behind ${esc(state.latest)}</span>` : ''}</dd>
                         <dt>Last call</dt><dd>${row?.lastCall ? esc(ago(row.lastCall)) + ' ago' : 'not calling'}</dd>
                         <dt>Last log</dt><dd>${state.lastPlugin.get(callsign) ? esc(ago(state.lastPlugin.get(callsign).at)) + ' ago' : '-'}</dd>
