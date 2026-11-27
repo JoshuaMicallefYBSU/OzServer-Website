@@ -476,7 +476,12 @@
                 lastPlugin: new Map(), // callsign -> { at, server, cid } from the logs
                 latest: null,          // the plugin release controllers should be on (/plugin/release)
                 streams: null,         // open Server-Sent Events streams on the API (/events/status)
+                names: new Map(),      // CID -> name their VATSIM connection shows (live datafeed)
             };
+
+            // The name a controller's VATSIM connection shows: from the API where it gave one, or
+            // looked up by CID in VATSIM's datafeed. Live only - a SweatBox is not on the datafeed.
+            const nameOf = r => r?.realName || (r?.server === 'live' && r.cid != null ? state.names.get(Number(r.cid)) : null) || null;
 
             const keyOf = row => [row.controller_cid, row.controller_callsign, row.server, row.logged_at, row.sequence, row.category, row.message].join('|');
             const isApi = row => row.plugin_version === 'server';
@@ -723,7 +728,7 @@
                     b.innerHTML = `
                         <i class="oz-dot ext"></i>
                         <div class="main">
-                            <div class="title">${esc(r.callsign)}${r.realName ? `<span class="name">${esc(r.realName)}</span>` : ''}</div>
+                            <div class="title">${esc(r.callsign)}${nameOf(r) ? `<span class="name">${esc(nameOf(r))}</span>` : ''}</div>
                             <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> <span class="oz-badge ext">no plugin</span> ${esc(r.frequencies[0] || '')}${n ? ` · ${n} sector${n === 1 ? '' : 's'}` : ''}</div>
                         </div>
                         <div class="right"></div>`;
@@ -739,7 +744,7 @@
                 b.innerHTML = `
                     <i class="oz-dot ${dot}"></i>
                     <div class="main">
-                        <div class="title">${esc(r.callsign)}${r.realName ? `<span class="name">${esc(r.realName)}</span>` : ''}</div>
+                        <div class="title">${esc(r.callsign)}${nameOf(r) ? `<span class="name">${esc(nameOf(r))}</span>` : ''}</div>
                         <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> ${versionText} · ${held.length ? esc(held.length + ' sector' + (held.length === 1 ? '' : 's')) : 'no sectors'}</div>
                     </div>
                     <div class="right">${errs ? `<div class="errs">${errs} err</div>` : ''}<div>${esc(ago(last))}</div></div>`;
@@ -832,7 +837,7 @@
                     <dl class="oz-kv">
                         <dt>Server</dt><dd><span class="oz-badge srv-${esc(server)}">${esc(server)}</span></dd>
                         <dt>CID</dt><dd>${esc(row?.cid ?? state.lastPlugin.get(callsign)?.cid ?? '?')}</dd>
-                        <dt>Name</dt><dd>${row?.realName ? esc(row.realName) : (server === 'live' ? 'not on the VATSIM datafeed' : 'unknown - SweatBox')}</dd>
+                        <dt>Name</dt><dd>${nameOf(row ?? { server, cid: state.lastPlugin.get(callsign)?.cid }) ? esc(nameOf(row ?? { server, cid: state.lastPlugin.get(callsign)?.cid })) : (server === 'live' ? 'not on the VATSIM datafeed' : 'unknown - SweatBox')}</dd>
                         <dt>Plugin</dt><dd>${esc(state.versions.get(callsign) || 'unknown')}${outdated(state.versions.get(callsign)) ? ` <span class="oz-badge warn">behind ${esc(state.latest)}</span>` : ''}</dd>
                         <dt>Last call</dt><dd>${row?.lastCall ? esc(ago(row.lastCall)) + ' ago' : 'not calling'}</dd>
                         <dt>Last log</dt><dd>${state.lastPlugin.get(callsign) ? esc(ago(state.lastPlugin.get(callsign).at)) + ' ago' : '-'}</dd>
@@ -861,7 +866,7 @@
                     <dl class="oz-kv">
                         <dt>Server</dt><dd><span class="oz-badge srv-${esc(row.server)}">${esc(row.server)}</span></dd>
                         <dt>CID</dt><dd>${esc(row.cid ?? 'unknown')}</dd>
-                        <dt>Name</dt><dd>${esc(row.realName || 'unknown')}</dd>
+                        <dt>Name</dt><dd>${esc(nameOf(row) || 'unknown')}</dd>
                         <dt>Frequencies</dt><dd>${row.frequencies.length ? row.frequencies.map(esc).join(', ') : '-'}</dd>
                     </dl>
                     <div class="oz-section-title">Sectors treated as theirs (${row.extSectors.length})</div>
@@ -1092,6 +1097,20 @@
             }
 
             // The release plugins update to, to flag controllers on an older one.
+            // VATSIM's datafeed (public, cross-origin, refreshed every 15 s), for names by CID.
+            // Every connection that can be a controller: positions, observers and ATIS.
+            async function refreshNames() {
+                try {
+                    const r = await fetch('https://data.vatsim.net/v3/vatsim-data.json', { headers: { Accept: 'application/json' } });
+                    if (!r.ok) return;
+                    const data = await r.json();
+                    const names = new Map();
+                    for (const c of [...(data.controllers || []), ...(data.atis || [])]) if (c.cid && c.name) names.set(Number(c.cid), String(c.name));
+                    state.names = names;
+                    renderControllers(); if (!detailsBusy()) renderDetails();
+                } catch { /* keep the last */ }
+            }
+
             async function refreshRelease() {
                 try {
                     const r = await fetch(`${apiBaseUrl}/api/v1/plugin/release`, { headers: { Accept: 'application/json' } });
@@ -1134,6 +1153,8 @@
 
                 if (MESSAGING_ENABLED) startMessages();
                 refreshRelease();
+                refreshNames();
+                setInterval(refreshNames, 60000);
                 setInterval(refreshRelease, 5 * 60000);
                 backfill();
                 refreshState();
