@@ -333,6 +333,7 @@
             const DEFAULT_REGIONS = [
                 { value: 'australia', label: 'Australia' },
                 { value: 'mexico', label: 'Mexico' },
+                { value: 'new-zealand', label: 'New Zealand' },
             ];
             let currentServer = new URLSearchParams(window.location.search).get('server');
             // Embedded in the /console: the map and its stats only - see .oz-embed.
