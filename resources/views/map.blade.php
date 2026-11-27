@@ -337,7 +337,8 @@
             ];
             let currentServer = new URLSearchParams(window.location.search).get('server');
             // Embedded in the /console: the map and its stats only - see .oz-embed.
-            if (new URLSearchParams(window.location.search).get('embed') === '1') document.body.classList.add('oz-embed');
+            const EMBEDDED = new URLSearchParams(window.location.search).get('embed') === '1';
+            if (EMBEDDED) document.body.classList.add('oz-embed');
 
             const TYPE_RANK = { FMP: 0, CTR: 1, FSS: 1, APP: 2, DEP: 2, TWR: 3, GND: 4, DEL: 4 };
             const UNSTAFFED_COLOUR = '#3A4866';
@@ -425,6 +426,9 @@
                 online: prefs.online,
                 offline: prefs.offline,
                 regions: prefs.regions,
+                // Embedded, the regions the console's filter shows (?regions=a,b, then its
+                // messages; none for every region); null otherwise. See regionOn.
+                only: EMBEDDED ? (new URLSearchParams(window.location.search).get('regions') || '').split(',').filter(Boolean) : null,
                 regionList: DEFAULT_REGIONS,
                 feed: [],
                 unseenFeed: 0,
@@ -463,7 +467,15 @@
 
             // Whether a region is switched on. Anything with no known region (a flight the API could
             // place in no sector or aerodrome) is shown whatever is switched off.
-            function regionOn(region) { return !region || state.regions[region] !== false; }
+            //
+            // Embedded in the /console, the console's region filter decides instead (state.only: the
+            // regions to show, empty for all of them), so following it never changes what this
+            // browser's own /live-map keeps switched on.
+            function regionOn(region) {
+                if (!region) return true;
+                if (state.only) return state.only.length === 0 || state.only.includes(region);
+                return state.regions[region] !== false;
+            }
             function sectorOn(name) { return regionOn(state.shapes.get(name)?.region); }
             function flightOn(f) { return regionOn(f.region); }
             // A controller belongs to the region of their own position, or failing that of the first
@@ -1995,12 +2007,30 @@
                 const button = event.target.closest('[data-region]');
                 if (!button) return;
                 const region = button.dataset.region;
-                if (regionOn(region)) state.regions[region] = false; else delete state.regions[region];
-                savePrefs();
+                if (state.only) {
+                    // Following the console: a press changes what is shown here only.
+                    const shown = state.only.length ? state.only : state.regionList.map((r) => r.value);
+                    state.only = regionOn(region) ? shown.filter((r) => r !== region) : [...shown, region];
+                } else {
+                    if (regionOn(region)) state.regions[region] = false; else delete state.regions[region];
+                    savePrefs();
+                }
                 renderRegions();
                 if (selectionHidden()) select(null, { fly: false }); else renderAll();
                 fitToRegions();
             });
+
+            // The console says which regions its filter shows: { type: 'oz-regions', regions: [...] },
+            // an empty list for every region. Only from this site's own pages.
+            if (EMBEDDED) {
+                window.addEventListener('message', (event) => {
+                    if (event.origin !== window.location.origin || event.data?.type !== 'oz-regions' || !Array.isArray(event.data.regions)) return;
+                    state.only = event.data.regions.map(String);
+                    renderRegions();
+                    if (selectionHidden()) select(null, { fly: false }); else renderAll();
+                    fitToRegions();
+                });
+            }
 
             // Every drawn sector's box in one region, in one longitude frame: a Pacific sector across
             // the antimeridian can come out of unwrapRing on either side of it, so each box is moved

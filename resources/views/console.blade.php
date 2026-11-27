@@ -242,6 +242,12 @@
                     <option value="sb1">SweatBox 1</option>
                     <option value="sb2">SweatBox 2</option>
                 </select>
+                <select id="region" class="oz-input" aria-label="Region" title="Controllers, log lines, figures and the map, for one region">
+                    <option value="">All regions</option>
+                    <option value="australia">Australia</option>
+                    <option value="new-zealand">New Zealand</option>
+                    <option value="mexico">Mexico</option>
+                </select>
                 <div class="oz-stats" id="stats"></div>
                 <div class="oz-live" id="live" title="Log feed"><i></i><span>Connecting…</span></div>
                 <button class="oz-btn" id="lock">Lock</button>
@@ -463,6 +469,8 @@
             // ---------------------------------------------------------------------------------
             const state = {
                 server: 'all',
+                region: localStorage.getItem('ozConsoleRegion') || '', // '' for every region
+                where: { sectors: {}, callsigns: {}, prefixes: {} },   // /map/sector-regions
                 events: [],            // every line loaded, oldest first
                 seen: new Set(),
                 groups: Object.fromEntries(GROUPS.map(g => [g.id, g.on])),
@@ -485,6 +493,30 @@
 
             const keyOf = row => [row.controller_cid, row.controller_callsign, row.server, row.logged_at, row.sequence, row.category, row.message].join('|');
             const isApi = row => row.plugin_version === 'server';
+
+            // ---------------------------------------------------------------------------------
+            // Regions: where a sector, a controller or a log line is, for the region filter. From
+            // the API's /map/sector-regions - sectors by name and callsign, and callsign prefixes
+            // used in one region only. Something placed nowhere (an observer, say) is shown only
+            // with every region.
+            // ---------------------------------------------------------------------------------
+            const regionOfSector = name => state.where.sectors[name] || null;
+            function regionOfCallsign(callsign) {
+                const cs = String(callsign || '').toUpperCase();
+                return state.where.callsigns[cs] || state.where.prefixes[cs.split(/[-_]/)[0]] || null;
+            }
+            // A controller is where the sectors they hold are, else where their callsign says.
+            function regionOfController(callsign, server) {
+                const ops = state.ops[server];
+                const held = ops?.ownerships.find(o => o.callsign === callsign)?.sector
+                    || ops?.external_controllers?.find(c => c.callsign === callsign)?.sectors?.[0];
+                return (held && regionOfSector(held)) || regionOfCallsign(callsign);
+            }
+            const regionOfRow = row => (row.context?.sector && regionOfSector(row.context.sector)) || regionOfController(row.controller_callsign, row.server);
+            const inRegion = region => !state.region || region === state.region;
+            // A log line on the server and in the region picked.
+            const inScope = row => (state.server === 'all' || row.server === state.server) && inRegion(regionOfRow(row));
+            const scopedClients = () => state.clients.filter(c => inRegion(regionOfController(c.callsign, c.server)));
 
             // "0.3.4" style versions. One that does not parse is never called outdated.
             const parseVersion = v => { const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); return m ? m.slice(1).map(Number) : null; };
@@ -520,7 +552,7 @@
 
             const visible = row =>
                 state.groups[row._group]
-                && (state.server === 'all' || row.server === state.server)
+                && inScope(row)
                 && (!state.focus || row.controller_callsign === state.focus)
                 && (!state.search || `${row.controller_callsign} ${row.category} ${row.message} ${JSON.stringify(row.context || {})}`.toLowerCase().includes(state.search));
 
@@ -604,7 +636,7 @@
             function renderGroupCounts() {
                 const counts = {};
                 for (const row of state.events) {
-                    if (state.server !== 'all' && row.server !== state.server) continue;
+                    if (!inScope(row)) continue;
                     if (state.focus && row.controller_callsign !== state.focus) continue;
                     counts[row._group] = (counts[row._group] || 0) + 1;
                 }
@@ -669,7 +701,20 @@
                 renderStats(); renderControllers(); renderPicker(); if (!detailsBusy()) renderDetails();
             }
 
-            const opsServers = () => (state.server === 'all' ? SERVERS : [state.server]).map(s => state.ops[s]).filter(Boolean);
+            // Each server's /map/ops, cut to the region picked: what it holds, its requests, and the
+            // controllers working there.
+            const opsServers = () => (state.server === 'all' ? SERVERS : [state.server]).map(s => state.ops[s]).filter(Boolean).map(ops => {
+                if (!state.region) return ops;
+                const here = sector => inRegion(regionOfSector(sector));
+                return {
+                    ...ops,
+                    ownerships: ops.ownerships.filter(o => here(o.sector)),
+                    external: (ops.external || []).filter(o => here(o.sector)),
+                    requests: ops.requests.filter(r => here(r.sector)),
+                    controllers: ops.controllers.filter(c => inRegion(regionOfController(c.callsign, ops.server))),
+                    external_controllers: (ops.external_controllers || []).filter(c => inRegion(regionOfController(c.callsign, ops.server))),
+                };
+            });
             const sectorsOf = (callsign, server) => {
                 const ops = state.ops[server];
                 if (!ops) return [];
@@ -700,7 +745,8 @@
                     if (rows.has(`${ops.server}|${c.callsign}`)) continue;
                     add(c.callsign, ops.server, { cid: c.cid, external: true, realName: c.real_name, frequencies: c.frequencies || [], extSectors: c.sectors || [] });
                 }
-                return [...rows.values()].sort((a, b) => a.callsign.localeCompare(b.callsign));
+                return [...rows.values()].filter(r => inRegion(regionOfController(r.callsign, r.server)))
+                    .sort((a, b) => a.callsign.localeCompare(b.callsign));
             }
 
             const ctlEl = document.getElementById('controllers');
@@ -759,11 +805,11 @@
                 const ops = opsServers();
                 const holding = ops.reduce((n, o) => n + o.controllers.length, 0);
                 const pending = ops.reduce((n, o) => n + o.requests.filter(r => !r.rejected_at).length, 0);
-                const inScope = state.events.filter(r => state.server === 'all' || r.server === state.server);
-                const errs = inScope.filter(r => r._group === 'errors').length;
-                const losses = inScope.filter(r => r.category === 'TagLoss').length;
+                const scoped = state.events.filter(inScope);
+                const errs = scoped.filter(r => r._group === 'errors').length;
+                const losses = scoped.filter(r => r.category === 'TagLoss').length;
                 const all = controllerRows();
-                const connected = MESSAGING_ENABLED ? state.clients.length : all.filter(r => !r.external).length;
+                const connected = MESSAGING_ENABLED ? scopedClients().length : all.filter(r => !r.external).length;
                 const external = all.filter(r => r.external).length;
                 const behind = all.filter(r => !r.external && outdated(state.versions.get(r.callsign))).length;
                 const stat = (n, label, cls = '') => `<div class="oz-stat ${cls}"><b>${n}</b><small>${label}</small></div>`;
@@ -775,7 +821,7 @@
                     stat(pending, 'pending requests', pending ? 'warn' : '') +
                     stat(errs, `errors (${document.getElementById('window').selectedOptions[0].text})`, errs ? 'bad' : '') +
                     stat(losses, 'tag losses', losses ? 'warn' : '') +
-                    stat(inScope.length, 'log lines') +
+                    stat(scoped.length, 'log lines') +
                     (state.streams === null ? '' : stat(state.streams, 'event streams'));
             }
 
@@ -789,8 +835,8 @@
             function renderDetails() {
                 if (state.focus) return renderControllerDetails(state.focus);
                 const ops = opsServers();
-                const inScope = state.events.filter(r => state.server === 'all' || r.server === state.server);
-                const errors = inScope.filter(r => r._group === 'errors');
+                const scoped = state.events.filter(inScope);
+                const errors = scoped.filter(r => r._group === 'errors');
                 const top = new Map();
                 for (const r of errors) top.set(r.message, (top.get(r.message) || 0) + 1);
                 const topRows = [...top.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -802,9 +848,9 @@
                 for (const r of pluginRows) { const v = state.versions.get(r.callsign) || 'unknown'; versions.set(v, (versions.get(v) || 0) + 1); }
                 detailsEl.innerHTML = `
                     <div class="oz-kind">Network</div>
-                    <h3>${state.server === 'all' ? 'All servers' : esc(state.server)}</h3>
+                    <h3>${state.server === 'all' ? 'All servers' : esc(state.server)}${state.region ? ' · ' + esc(document.getElementById('region').selectedOptions[0].text) : ''}</h3>
                     <div class="oz-summary">
-                        <div><b>${MESSAGING_ENABLED ? state.clients.length : pluginRows.length}</b><small>Plugins connected</small></div>
+                        <div><b>${MESSAGING_ENABLED ? scopedClients().length : pluginRows.length}</b><small>Plugins connected</small></div>
                         <div><b>${all.length - pluginRows.length}</b><small>Without plugin</small></div>
                         <div><b>${ops.reduce((n, o) => n + o.ownerships.length, 0)}</b><small>Sectors held</small></div>
                         <div><b>${ops.reduce((n, o) => n + (o.external || []).length, 0)}</b><small>Held without plugin</small></div>
@@ -1092,11 +1138,31 @@
             // ---------------------------------------------------------------------------------
             function setMap() {
                 const server = state.server === 'all' ? 'live' : state.server;
-                document.getElementById('map').src = `/live-map?embed=1&server=${encodeURIComponent(server)}`;
+                document.getElementById('map').src = `/live-map?embed=1&server=${encodeURIComponent(server)}&regions=${encodeURIComponent(state.region)}`;
                 document.getElementById('map-open').href = `/live-map?server=${encodeURIComponent(server)}`;
             }
 
             // The release plugins update to, to flag controllers on an older one.
+            // Where each sector and callsign is (/map/sector-regions), for the region filter.
+            async function refreshWhere() {
+                try {
+                    const r = await fetch(`${apiBaseUrl}/api/v1/map/sector-regions`, { headers: { Accept: 'application/json' } });
+                    if (!r.ok) return;
+                    state.where = await r.json();
+                    renderAllScoped();
+                } catch { /* keep the last */ }
+            }
+            function renderAllScoped() { renderFeed(); renderStats(); renderControllers(); if (!detailsBusy()) renderDetails(); }
+
+            // A region picked: the controllers, the feed, the figures and the map are its own.
+            function setRegion(region) {
+                state.region = region;
+                try { localStorage.setItem('ozConsoleRegion', region); } catch { /* private mode */ }
+                // The embedded map follows without reloading; see map.blade.php.
+                document.getElementById('map').contentWindow?.postMessage({ type: 'oz-regions', regions: region ? [region] : [] }, window.location.origin);
+                renderAllScoped();
+            }
+
             // VATSIM's datafeed (public, cross-origin, refreshed every 15 s), for names by CID.
             // Every connection that can be a controller: positions, observers and ATIS.
             async function refreshNames() {
@@ -1154,6 +1220,12 @@
                 if (MESSAGING_ENABLED) startMessages();
                 refreshRelease();
                 refreshNames();
+                refreshWhere();
+                setInterval(refreshWhere, 10 * 60000);
+                const regionSelect = document.getElementById('region');
+                regionSelect.value = state.region;
+                if (regionSelect.value !== state.region) state.region = '';
+                regionSelect.addEventListener('change', e => setRegion(e.target.value));
                 setInterval(refreshNames, 60000);
                 setInterval(refreshRelease, 5 * 60000);
                 backfill();
