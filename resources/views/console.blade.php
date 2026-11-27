@@ -105,6 +105,11 @@
             .oz-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--good); }
             .oz-dot.stale { background: var(--warn); }
             .oz-dot.off { background: var(--faint); }
+            /* The colour the live map shades airspace worked without the plugin. */
+            .oz-dot.ext { background: #E6BE7C; }
+            .oz-badge.ext { background: rgba(230, 190, 124, 0.16); color: #E6BE7C; }
+            .oz-list .oz-section-title { margin: 10px 4px 4px; }
+            .oz-tabs .count { display: inline-block; min-width: 16px; margin-left: 5px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: #070B14; font-size: 10.5px; font-weight: 700; }
             .oz-ctl .main { flex: 1; min-width: 0; }
             .oz-ctl .title { font-family: var(--mono); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .oz-ctl .sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -252,6 +257,7 @@
                         <span><i class="oz-dot"></i>Calling now</span>
                         <span><i class="oz-dot stale"></i>Quiet &gt;30s</span>
                         <span><i class="oz-dot off"></i>Seen in logs only</span>
+                        <span><i class="oz-dot ext"></i>No plugin</span>
                     </div>
                 </aside>
 
@@ -289,7 +295,7 @@
                 <aside class="oz-panel oz-right">
                     <nav class="oz-tabs">
                         <button data-tab="details" class="active">Details</button>
-                        <button data-tab="messages" @if (! $messagingEnabled) hidden @endif>Messages</button>
+                        <button data-tab="messages" @if (! $messagingEnabled) hidden @endif>Messages<span class="count" id="reply-count" title="New replies" hidden></span></button>
                     </nav>
                     <div class="oz-tab-body oz-detail" data-body="details" id="details"></div>
                     <div class="oz-tab-body" data-body="messages" hidden>
@@ -467,10 +473,21 @@
                 ops: {},               // server -> /map/ops
                 versions: new Map(),   // callsign -> plugin version, from the logs
                 lastPlugin: new Map(), // callsign -> { at, server, cid } from the logs
+                latest: null,          // the plugin release controllers should be on (/plugin/release)
+                streams: null,         // open Server-Sent Events streams on the API (/events/status)
             };
 
             const keyOf = row => [row.controller_cid, row.controller_callsign, row.server, row.logged_at, row.sequence, row.category, row.message].join('|');
             const isApi = row => row.plugin_version === 'server';
+
+            // "0.3.4" style versions. One that does not parse is never called outdated.
+            const parseVersion = v => { const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || '')); return m ? m.slice(1).map(Number) : null; };
+            function outdated(version) {
+                const have = parseVersion(version), want = parseVersion(state.latest);
+                if (!have || !want) return false;
+                for (let i = 0; i < 3; i++) if (have[i] !== want[i]) return have[i] < want[i];
+                return false;
+            }
 
             function ingest(rows) {
                 const fresh = [];
@@ -634,6 +651,10 @@
                         if (r.ok) state.ops[server] = await r.json();
                     } catch { /* keep the last */ }
                 }));
+                try {
+                    const r = await fetch(`${apiBaseUrl}/api/v1/events/status`, { headers: { Accept: 'application/json' } });
+                    if (r.ok) state.streams = (await r.json()).subscribers ?? null;
+                } catch { /* keep the last */ }
                 if (MESSAGING_ENABLED) {
                     const r = await consoleFetch(`/console/api/clients?server=${state.server}`);
                     if (r.ok && Array.isArray(r.body)) state.clients = r.body;
@@ -645,12 +666,15 @@
             const opsServers = () => (state.server === 'all' ? SERVERS : [state.server]).map(s => state.ops[s]).filter(Boolean);
             const sectorsOf = (callsign, server) => {
                 const ops = state.ops[server];
-                return ops ? ops.ownerships.filter(o => o.callsign === callsign).map(o => o.sector) : [];
+                if (!ops) return [];
+                const held = ops.ownerships.filter(o => o.callsign === callsign).map(o => o.sector);
+                return held.length ? held : (ops.external || []).filter(o => o.callsign === callsign).map(o => o.sector);
             };
             const errorsOf = callsign => state.events.filter(r => r._group === 'errors' && r.controller_callsign === callsign);
 
             // Everyone worth listing: plugin clients calling now, plus anyone holding sectors or
-            // seen in the logs within the last 5 minutes.
+            // seen in the logs within the last 5 minutes, plus controllers on the network without
+            // the plugin (the API's external controllers, from what the plugins and VATSIM see).
             function controllerRows() {
                 const rows = new Map();
                 const add = (callsign, server, extra) => {
@@ -665,6 +689,11 @@
                     if (state.server !== 'all' && info.server !== state.server) continue;
                     add(callsign, info.server, { cid: info.cid, lastLog: info.at });
                 }
+                for (const ops of opsServers()) for (const c of ops.external_controllers || []) {
+                    // Also seen calling with the plugin: a plugin user, listed as one.
+                    if (rows.has(`${ops.server}|${c.callsign}`)) continue;
+                    add(c.callsign, ops.server, { cid: c.cid, external: true, realName: c.real_name, frequencies: c.frequencies || [], extSectors: c.sectors || [] });
+                }
                 return [...rows.values()].sort((a, b) => a.callsign.localeCompare(b.callsign));
             }
 
@@ -674,24 +703,46 @@
                 const rows = controllerRows().filter(r => !q || r.callsign.toUpperCase().includes(q));
                 if (rows.length === 0) { ctlEl.innerHTML = '<div class="oz-empty">Nobody connected.</div>'; return; }
                 ctlEl.innerHTML = '';
-                for (const r of rows) {
-                    const last = r.lastCall || r.lastLog;
-                    const quietMs = last ? Date.now() - new Date(last).getTime() : Infinity;
-                    const dot = r.connected || r.holding ? (quietMs > 30000 ? 'stale' : '') : 'off';
-                    const held = sectorsOf(r.callsign, r.server);
-                    const errs = errorsOf(r.callsign).length;
-                    const b = document.createElement('button');
-                    b.className = 'oz-ctl' + (state.focus === r.callsign ? ' selected' : '');
+                const plugin = rows.filter(r => !r.external), external = rows.filter(r => r.external);
+                if (plugin.length === 0) ctlEl.insertAdjacentHTML('beforeend', '<div class="oz-empty">No plugin users.</div>');
+                for (const r of plugin) ctlEl.appendChild(controllerNode(r));
+                if (external.length) {
+                    ctlEl.insertAdjacentHTML('beforeend', `<div class="oz-section-title">Without the plugin (${external.length})</div>`);
+                    for (const r of external) ctlEl.appendChild(controllerNode(r));
+                }
+            }
+
+            function controllerNode(r) {
+                const b = document.createElement('button');
+                b.className = 'oz-ctl' + (state.focus === r.callsign ? ' selected' : '');
+                b.addEventListener('click', () => selectController(state.focus === r.callsign ? null : r.callsign));
+                if (r.external) {
+                    const n = r.extSectors.length;
+                    b.title = 'On the network without the OzServer plugin';
                     b.innerHTML = `
-                        <i class="oz-dot ${dot}"></i>
+                        <i class="oz-dot ext"></i>
                         <div class="main">
                             <div class="title">${esc(r.callsign)}</div>
-                            <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> ${esc(state.versions.get(r.callsign) || 'version ?')} · ${held.length ? esc(held.length + ' sector' + (held.length === 1 ? '' : 's')) : 'no sectors'}</div>
+                            <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> <span class="oz-badge ext">no plugin</span> ${esc(r.frequencies[0] || '')}${n ? ` · ${n} sector${n === 1 ? '' : 's'}` : ''}</div>
                         </div>
-                        <div class="right">${errs ? `<div class="errs">${errs} err</div>` : ''}<div>${esc(ago(last))}</div></div>`;
-                    b.addEventListener('click', () => selectController(state.focus === r.callsign ? null : r.callsign));
-                    ctlEl.appendChild(b);
+                        <div class="right">${esc(r.realName || '')}</div>`;
+                    return b;
                 }
+                const last = r.lastCall || r.lastLog;
+                const quietMs = last ? Date.now() - new Date(last).getTime() : Infinity;
+                const dot = r.connected || r.holding ? (quietMs > 30000 ? 'stale' : '') : 'off';
+                const held = sectorsOf(r.callsign, r.server);
+                const errs = errorsOf(r.callsign).length;
+                const version = state.versions.get(r.callsign);
+                const versionText = outdated(version) ? `<span class="oz-badge warn" title="Latest is ${esc(state.latest)}">${esc(version)}</span>` : esc(version || 'version ?');
+                b.innerHTML = `
+                    <i class="oz-dot ${dot}"></i>
+                    <div class="main">
+                        <div class="title">${esc(r.callsign)}</div>
+                        <div class="sub"><span class="oz-badge srv-${esc(r.server)}">${esc(r.server)}</span> ${versionText} · ${held.length ? esc(held.length + ' sector' + (held.length === 1 ? '' : 's')) : 'no sectors'}</div>
+                    </div>
+                    <div class="right">${errs ? `<div class="errs">${errs} err</div>` : ''}<div>${esc(ago(last))}</div></div>`;
+                return b;
             }
             document.getElementById('ctl-search').addEventListener('input', renderControllers);
 
@@ -705,15 +756,21 @@
                 const inScope = state.events.filter(r => state.server === 'all' || r.server === state.server);
                 const errs = inScope.filter(r => r._group === 'errors').length;
                 const losses = inScope.filter(r => r.category === 'TagLoss').length;
-                const connected = MESSAGING_ENABLED ? state.clients.length : controllerRows().length;
+                const all = controllerRows();
+                const connected = MESSAGING_ENABLED ? state.clients.length : all.filter(r => !r.external).length;
+                const external = all.filter(r => r.external).length;
+                const behind = all.filter(r => !r.external && outdated(state.versions.get(r.callsign))).length;
                 const stat = (n, label, cls = '') => `<div class="oz-stat ${cls}"><b>${n}</b><small>${label}</small></div>`;
                 document.getElementById('stats').innerHTML =
                     stat(connected, 'plugins connected') +
+                    stat(external, 'without plugin') +
                     stat(holding, 'holding sectors') +
+                    (state.latest ? stat(behind, `behind ${esc(state.latest)}`, behind ? 'warn' : '') : '') +
                     stat(pending, 'pending requests', pending ? 'warn' : '') +
                     stat(errs, `errors (${document.getElementById('window').selectedOptions[0].text})`, errs ? 'bad' : '') +
                     stat(losses, 'tag losses', losses ? 'warn' : '') +
-                    stat(inScope.length, 'log lines');
+                    stat(inScope.length, 'log lines') +
+                    (state.streams === null ? '' : stat(state.streams, 'event streams'));
             }
 
             // ---------------------------------------------------------------------------------
@@ -732,17 +789,27 @@
                 for (const r of errors) top.set(r.message, (top.get(r.message) || 0) + 1);
                 const topRows = [...top.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
                 const requests = ops.flatMap(o => o.requests.filter(r => !r.rejected_at).map(r => ({ ...r, server: o.server })));
+                const rejected = ops.flatMap(o => o.requests.filter(r => r.rejected_at).map(r => ({ ...r, server: o.server })));
+                const all = controllerRows();
+                const pluginRows = all.filter(r => !r.external);
+                const versions = new Map();
+                for (const r of pluginRows) { const v = state.versions.get(r.callsign) || 'unknown'; versions.set(v, (versions.get(v) || 0) + 1); }
                 detailsEl.innerHTML = `
                     <div class="oz-kind">Network</div>
                     <h3>${state.server === 'all' ? 'All servers' : esc(state.server)}</h3>
                     <div class="oz-summary">
-                        <div><b>${MESSAGING_ENABLED ? state.clients.length : controllerRows().length}</b><small>Plugins connected</small></div>
+                        <div><b>${MESSAGING_ENABLED ? state.clients.length : pluginRows.length}</b><small>Plugins connected</small></div>
+                        <div><b>${all.length - pluginRows.length}</b><small>Without plugin</small></div>
                         <div><b>${ops.reduce((n, o) => n + o.ownerships.length, 0)}</b><small>Sectors held</small></div>
+                        <div><b>${ops.reduce((n, o) => n + (o.external || []).length, 0)}</b><small>Held without plugin</small></div>
                         <div><b>${requests.length}</b><small>Pending requests</small></div>
                         <div><b>${errors.length}</b><small>Errors loaded</small></div>
                     </div>
                     <div class="oz-section-title">Pending sector requests</div>
                     ${requests.length ? requests.map(r => `<div class="oz-mini"><time>${esc(ago(r.created_at))}</time><b>${esc(r.requesting_callsign)}</b> wants <span class="oz-chip">${esc(r.sector)}</span> from <b>${esc(r.target_callsign)}</b></div>`).join('') : '<div class="oz-empty">None.</div>'}
+                    ${rejected.length ? '<div class="oz-section-title">Refused - last 10 minutes</div>' + rejected.map(r => `<div class="oz-mini"><time>${esc(ago(r.rejected_at))}</time><b>${esc(r.target_callsign)}</b> refused <b>${esc(r.requesting_callsign)}</b> <span class="oz-chip">${esc(r.sector)}</span></div>`).join('') : ''}
+                    <div class="oz-section-title">Plugin versions${state.latest ? ` - latest ${esc(state.latest)}` : ''}</div>
+                    ${versions.size ? [...versions.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `<div class="oz-toprow"><b style="color:${outdated(v) ? 'var(--warn)' : 'var(--muted)'}">${n}×</b><span>${esc(v)}${outdated(v) ? ' <span class="oz-badge warn">behind</span>' : ''}</span></div>`).join('') : '<div class="oz-empty">Nobody connected.</div>'}
                     <div class="oz-section-title">Most common errors</div>
                     ${topRows.length ? topRows.map(([m, n]) => `<div class="oz-toprow"><b>${n}×</b><span>${esc(m)}</span></div>`).join('') : '<div class="oz-empty">No errors in the loaded history.</div>'}
                     <div class="oz-hint" style="margin-top:12px">Click a controller on the left, or a callsign in the feed, to focus on them.</div>`;
@@ -750,6 +817,7 @@
 
             function renderControllerDetails(callsign) {
                 const row = controllerRows().find(r => r.callsign === callsign);
+                if (row?.external) return renderExternalDetails(row);
                 const server = row?.server || state.lastPlugin.get(callsign)?.server || 'live';
                 const held = sectorsOf(callsign, server);
                 const ops = state.ops[server];
@@ -763,7 +831,7 @@
                     <dl class="oz-kv">
                         <dt>Server</dt><dd><span class="oz-badge srv-${esc(server)}">${esc(server)}</span></dd>
                         <dt>CID</dt><dd>${esc(row?.cid ?? state.lastPlugin.get(callsign)?.cid ?? '?')}</dd>
-                        <dt>Plugin</dt><dd>${esc(state.versions.get(callsign) || 'unknown')}</dd>
+                        <dt>Plugin</dt><dd>${esc(state.versions.get(callsign) || 'unknown')}${outdated(state.versions.get(callsign)) ? ` <span class="oz-badge warn">behind ${esc(state.latest)}</span>` : ''}</dd>
                         <dt>Last call</dt><dd>${row?.lastCall ? esc(ago(row.lastCall)) + ' ago' : 'not calling'}</dd>
                         <dt>Last log</dt><dd>${state.lastPlugin.get(callsign) ? esc(ago(state.lastPlugin.get(callsign).at)) + ' ago' : '-'}</dd>
                     </dl>
@@ -781,6 +849,24 @@
                     </div>`;
                 document.getElementById('d-clear').addEventListener('click', () => selectController(null));
                 document.getElementById('d-message')?.addEventListener('click', () => messageTo(callsign, server));
+            }
+
+            // A controller on the network without the plugin: what OzServer infers they work.
+            function renderExternalDetails(row) {
+                detailsEl.innerHTML = `
+                    <div class="oz-kind">Controller - no plugin</div>
+                    <h3>${esc(row.callsign)}</h3>
+                    <dl class="oz-kv">
+                        <dt>Server</dt><dd><span class="oz-badge srv-${esc(row.server)}">${esc(row.server)}</span></dd>
+                        <dt>CID</dt><dd>${esc(row.cid ?? 'unknown')}</dd>
+                        <dt>Name</dt><dd>${esc(row.realName || 'unknown')}</dd>
+                        <dt>Frequencies</dt><dd>${row.frequencies.length ? row.frequencies.map(esc).join(', ') : '-'}</dd>
+                    </dl>
+                    <div class="oz-section-title">Sectors treated as theirs (${row.extSectors.length})</div>
+                    ${row.extSectors.length ? row.extSectors.map(s => `<span class="oz-chip">${esc(s)}</span>`).join('') : '<div class="oz-empty">None.</div>'}
+                    <div class="oz-hint" style="margin-top:12px">Inferred from their position, controller info and frequencies. Plugin users cannot request these sectors, only take them after coordinating by hand, and developer messages do not reach this controller.</div>
+                    <div class="oz-actions"><button class="oz-btn" id="d-clear">Show everyone</button></div>`;
+                document.getElementById('d-clear').addEventListener('click', () => selectController(null));
             }
 
             function selectController(callsign) {
@@ -906,10 +992,35 @@
                     }
                 }
 
+                // Replies not yet seen on the Messages tab, counted on the tab. Remembered per browser.
+                const SEEN_KEY = 'ozConsoleSeenReplies';
+                // In a browser that has never kept count, the replies already there are not new.
+                let seenReplies, firstLoad = false;
+                try {
+                    const kept = localStorage.getItem(SEEN_KEY);
+                    firstLoad = kept === null;
+                    seenReplies = new Set(JSON.parse(kept || '[]'));
+                } catch { seenReplies = new Set(); }
+                const countEl = document.getElementById('reply-count');
+                let replyIds = [];
+                const tabShown = () => !document.querySelector('[data-body="messages"]').hidden;
+                function markSeen() {
+                    for (const id of replyIds) seenReplies.add(id);
+                    try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seenReplies].slice(-500))); } catch { /* private mode */ }
+                }
+                function renderCount() {
+                    const unseen = replyIds.filter(id => !seenReplies.has(id)).length;
+                    countEl.hidden = unseen === 0;
+                    countEl.textContent = unseen;
+                }
+
                 async function load() {
                     const r = await consoleFetch('/console/api/messages');
                     if (r.status === 401) return window.location.reload();
                     if (!r.ok) { list.innerHTML = `<div class="oz-empty">${esc(r.body?.message || 'Could not load messages.')}</div>`; return; }
+                    replyIds = Array.isArray(r.body) ? r.body.flatMap(m => (m.replies || []).map(x => x.id)) : [];
+                    if (tabShown() || firstLoad) { markSeen(); firstLoad = false; }
+                    renderCount();
                     render(r.body);
                 }
 
@@ -960,8 +1071,12 @@
                     if (failed.length < sends.length) load();
                 });
 
-                let timer = null;
-                onMessagesShown = () => { load(); if (!timer) timer = setInterval(() => { if (!document.querySelector('[data-body="messages"]').hidden) load(); }, STATE_POLL_MS); };
+                // Read every 10 s while the tab is open, and every 30 s behind it so new replies are
+                // counted on the tab.
+                let ticks = 0;
+                onMessagesShown = () => { markSeen(); renderCount(); load(); };
+                setInterval(() => { ticks++; if (tabShown() || ticks % 3 === 0) load(); }, STATE_POLL_MS);
+                load();
                 renderPicker();
             }
 
@@ -972,6 +1087,16 @@
                 const server = state.server === 'all' ? 'live' : state.server;
                 document.getElementById('map').src = `/live-map?embed=1&server=${encodeURIComponent(server)}`;
                 document.getElementById('map-open').href = `/live-map?server=${encodeURIComponent(server)}`;
+            }
+
+            // The release plugins update to, to flag controllers on an older one.
+            async function refreshRelease() {
+                try {
+                    const r = await fetch(`${apiBaseUrl}/api/v1/plugin/release`, { headers: { Accept: 'application/json' } });
+                    if (!r.ok) return;
+                    state.latest = (await r.json())?.version || null;
+                    renderStats(); renderControllers(); if (!detailsBusy()) renderDetails();
+                } catch { /* keep the last */ }
             }
 
             function start() {
@@ -1006,6 +1131,8 @@
                 });
 
                 if (MESSAGING_ENABLED) startMessages();
+                refreshRelease();
+                setInterval(refreshRelease, 5 * 60000);
                 backfill();
                 refreshState();
                 setInterval(tail, LOG_POLL_MS);
