@@ -238,7 +238,7 @@
                 <a class="oz-brand" href="/" title="OzServer home">@include('partials.mark')OzServer <span>Console</span></a>
                 <select id="server" class="oz-input" aria-label="Server">
                     <option value="all">All servers</option>
-                    <option value="live">Live VATSIM</option>
+                    <option value="live" selected>Live VATSIM</option>
                     <option value="sb1">SweatBox 1</option>
                     <option value="sb2">SweatBox 2</option>
                 </select>
@@ -468,7 +468,7 @@
             // State
             // ---------------------------------------------------------------------------------
             const state = {
-                server: 'all',
+                server: 'live',
                 region: localStorage.getItem('ozConsoleRegion') || '', // '' for every region
                 where: { sectors: {}, callsigns: {}, prefixes: {} },   // /map/sector-regions
                 events: [],            // every line loaded, oldest first
